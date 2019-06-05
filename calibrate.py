@@ -63,11 +63,17 @@ class Calibration:
                     goal.p[0] = initial_cartesian_position.p[0] - size / 2 + col * sample_interval
                 else:
                     goal.p[0] = initial_cartesian_position.p[0] + size / 2 - col * sample_interval
-                time.sleep(0.5)
                 self.arm.move(goal)
+                for i in range(50):
+                    goal.p[2] -= 0.001
+                    self.arm.move(goal)
+                    if self.arm.get_desired_joint_effort()[0] >= 1:
+                        goal.p[2] += i * 0.001
+                        break
+                self.arm.move(goal)
+                # move down until forces acts upon the motor
+                time.sleep(0.3)
 
-            # get data (idk how rn)
-        
         self.home()
         print(rospy.get_caller_id(), '<- calibration complete')
 
