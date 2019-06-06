@@ -7,6 +7,7 @@ Notes for myself:
 
 
 from __future__ import print_function
+from copy import copy
 import time
 import math
 import csv
@@ -45,37 +46,80 @@ class Calibration:
             goal[2] = 0.12
             self.arm.move_joint(goal, interpolate = True)
         
-    def calibrate(self, size, sample_interval):
-        initial_cartesian_position = PyKDL.Frame()
-        initial_cartesian_position.p = self.arm.get_desired_position().p
-        initial_cartesian_position.M = self.arm.get_desired_position().M
+    def calibrate2d(self, pts, nsamples):
+        if not len(pts) == 2:
+            return False
 
+        y_dir = 1 if pts[1].p[1] > pts[0].p[1] else -1
+        x_dir = -1 if pts[1].p[0] > pts[0].p[0] else 1
+        
         goal = PyKDL.Frame()
-        goal.p = self.arm.get_desired_position().p
-        goal.M = self.arm.get_desired_position().M
+        goal.p = copy(pts[0].p)
+        goal.M = copy(pts[0].M)
 
-        for row in range(int(size / sample_interval)):
+        width = pts[1].p[0] - pts[0].p[0]
+        height = pts[0].p[1] - pts[1].p[1]
+
+        for row in range(nsamples):
             print('row', row)
-            goal.p[1] = initial_cartesian_position.p[0] - size / 2 + row * sample_interval
-            for col in range(int(size / sample_interval)):
+            goal.p[1] = pts[0].p[1] - y_dir * row * height / nsamples
+            for col in range(nsamples):
                 print('\tcol', col)
-                if row & 1: # is odd
-                    goal.p[0] = initial_cartesian_position.p[0] - size / 2 + col * sample_interval
+                if row % 2 == 0:
+                    goal.p[0] = pts[0].p[0] + col * width / nsamples
                 else:
-                    goal.p[0] = initial_cartesian_position.p[0] + size / 2 - col * sample_interval
+                    goal.p[0] = pts[0].p[0] + (nsamples - col - 1) * width / nsamples
                 self.arm.move(goal)
-                for i in range(50):
-                    goal.p[2] -= 0.001
-                    self.arm.move(goal)
-                    if self.arm.get_desired_joint_effort()[0] >= 1:
-                        goal.p[2] += i * 0.001
-                        break
-                self.arm.move(goal)
+                # for i in range(50):
+
+                #     goal.p[2] -= 0.001
+                #     self.arm.move(goal)
+                #     if self.arm.get_desired_joint_effort()[0] >= 1:
+                #         goal.p[2] += i * 0.001
+                #         break
+                # self.arm.move(goal)
                 # move down until forces acts upon the motor
                 time.sleep(0.3)
 
         self.home()
         print(rospy.get_caller_id(), '<- calibration complete')
+    
+    def calibrate3d(self, pts, nsamples):
+        # if not len(pts) == 3:
+        #     return False
+
+        goal = PyKDL.Frame()
+        goal.p = copy(pts[0].p)
+        goal.M = copy(pts[0].M)
+        
+
+
+        for i in range(nsamples):
+            self.arm.move(goal)
+            time.sleep(0.5)
+        
+        
+
+
+
+
+    def get_2pts(self):
+        pts = []
+        raw_input("Hello. Pick the first point, then press enter")
+        pts.append(self.arm.get_current_position())
+        raw_input("Pick the second point, then press enter")
+        pts.append(self.arm.get_current_position())
+        return pts
+
+    def get_3pts(self):
+        pts = []
+        raw_input("Hello. Pick the first point, then press enter")
+        pts.append(self.arm.get_current_position())
+        raw_input("Pick the second point, then press enter")
+        pts.append(self.arm.get_current_position())
+        raw_input("Pick the third point, then press enter")
+        pts.append(self.arm.get_current_position())
+        return pts
 
     def output_to_csv(self, filename):
         with open(filename, 'w', newline='') as csvfile:
@@ -92,7 +136,8 @@ if __name__ == "__main__":
             print(sys.argv[0], ' requires one argument, i.e. name of dVRK arm')
         else:
             calibration = Calibration(sys.argv[1])
-            calibration.calibrate(0.1, 0.01)
+            pts = calibration.get_2pts()
+            calibration.calibrate3d(pts, 5)
 
     except rospy.ROSInterruptException:
         pass
