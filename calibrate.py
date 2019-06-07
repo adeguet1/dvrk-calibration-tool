@@ -70,30 +70,43 @@ class Calibration:
                 else:
                     goal.p[0] = pts[0].p[0] + (nsamples - col - 1) * width / nsamples
                 self.arm.move(goal)
-                # for i in range(50):
+
+                # prev_goal = copy(goal)
+
+                # for k in range(50):
 
                 #     goal.p[2] -= 0.001
                 #     self.arm.move(goal)
-                #     if self.arm.get_desired_joint_effort()[0] >= 1:
-                #         goal.p[2] += i * 0.001
+                #     if self.arm.get_desired_joint_effort()[2] >= 1:
+                #         goal.p[2] += 0.001
                 #         break
+
+                # for k in range(10):
+                #     goal.p[2] -= 0.0001
+                #     self.arm.move(goal)
+                #     if self.arm.get_desired_join_effort()[2] >= 1:
+                #         dist = (prev_goal - goal)[2]
+                #         goal.p[2] += dist
+
+
                 # self.arm.move(goal)
-                # move down until forces acts upon the motor
+                # # move down until forces acts upon the motor
                 time.sleep(0.3)
 
-        self.home()
         print(rospy.get_caller_id(), '<- calibration complete')
     
     def calibrate3d(self, pts, nsamples):
         # if not len(pts) == 3:
         #     return False
 
+        MOVE_RES = 100
         goal = PyKDL.Frame()
         goal.p = copy(pts[0].p)
-        goal.M = copy(pts[0].M)
-        self.arm.move(goal)
-        time.sleep(0.5)
-
+        goal.M = PyKDL.Rotation(0, 1, 0, 1, 0, 0, 0, 0, -1)
+        
+        for i in range(MOVE_RES+1):
+            goal.p = pts[2].p + i / MOVE_RES * (pts[0].p - pts[2].p)
+            self.arm.move(goal)
 
 
         for i in range(nsamples + 1):
@@ -102,16 +115,40 @@ class Calibration:
             print("moving arm: i =", i)
             for j in range(nsamples + 1):
                 print("\tmoving arm: j =", j)
+                goal.M = PyKDL.Rotation(0, 1, 0, 1, 0, 0, 0, 0, -1)
                 if i % 2 == 0:
-                    goal = leftside + j / nsamples * (rightside - leftside)
+                    goal.p = leftside + j / nsamples * (rightside - leftside)
                 else:
-                    goal = rightside + j / nsamples * (leftside - rightside)
+                    goal.p = rightside + j / nsamples * (leftside - rightside)
+                
+                goal.p[2] += 0.01
+                self.arm.move(goal)
+
+                prev_goal = copy(goal)
+                goal.p[2] -= 0.005
+
+                for k in range(70):
+
+                    goal.p[2] -= 0.001
+                    self.arm.move(goal)
+                    if self.arm.get_desired_joint_effort()[2] >= 1:
+                        goal.p[2] += 0.001
+                        break
+
+                for k in range(10):
+                    goal.p[2] -= 0.0001
+                    self.arm.move(goal)
+                    if self.arm.get_desired_joint_effort()[2] >= 1:
+                        dist = (prev_goal.p - goal.p)[2]
+                        print("Distance: %fcm" % (dist / 100))
+                        goal.p[2] = prev_goal.p[2]
 
                 self.arm.move(goal)
-                time.sleep(0.5)
-        
-        
+                # move down until forces acts upon the motor
 
+                
+                time.sleep(0.5)
+        print(rospy.get_caller_id(), '<- calibration complete')
 
 
 
@@ -125,11 +162,11 @@ class Calibration:
 
     def get_3pts(self):
         pts = []
-        raw_input("Hello. Pick the first point, then press enter")
+        raw_input("Hello. Pick the first corner, then press enter")
         pts.append(self.arm.get_current_position())
-        raw_input("Pick the second point, then press enter")
+        raw_input("Pick the second corner (clockwise), then press enter")
         pts.append(self.arm.get_current_position())
-        raw_input("Pick the third point, then press enter")
+        raw_input("Pick the third corner (clockwise), then press enter")
         pts.append(self.arm.get_current_position())
         return pts
 
