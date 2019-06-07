@@ -6,7 +6,7 @@ Notes for myself:
 """
 
 
-from __future__ import print_function
+from __future__ import print_function, division
 from copy import copy
 import time
 import math
@@ -91,12 +91,24 @@ class Calibration:
         goal = PyKDL.Frame()
         goal.p = copy(pts[0].p)
         goal.M = copy(pts[0].M)
-        
+        self.arm.move(goal)
+        time.sleep(0.5)
 
 
-        for i in range(nsamples):
-            self.arm.move(goal)
-            time.sleep(0.5)
+
+        for i in range(nsamples + 1):
+            rightside = pts[1].p + i / nsamples * (pts[2].p - pts[1].p)
+            leftside = pts[0].p + i / nsamples * (pts[2].p - pts[1].p)
+            print("moving arm: i =", i)
+            for j in range(nsamples + 1):
+                print("\tmoving arm: j =", j)
+                if i % 2 == 0:
+                    goal = leftside + j / nsamples * (rightside - leftside)
+                else:
+                    goal = rightside + j / nsamples * (leftside - rightside)
+
+                self.arm.move(goal)
+                time.sleep(0.5)
         
         
 
@@ -136,7 +148,7 @@ if __name__ == "__main__":
             print(sys.argv[0], ' requires one argument, i.e. name of dVRK arm')
         else:
             calibration = Calibration(sys.argv[1])
-            pts = calibration.get_2pts()
+            pts = calibration.get_3pts()
             calibration.calibrate3d(pts, 5)
 
     except rospy.ROSInterruptException:
