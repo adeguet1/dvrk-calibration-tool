@@ -134,24 +134,24 @@ class Calibration:
                 goal.p[2] += 0.01
                 self.arm.move(goal)
 
-                for k in range(70):
+                for k in range(10):
                     self.data.append([goal.p[2], self.arm.get_current_wrench_body()[2]])
                     goal.p[2] -= 0.001
                     self.arm.move(goal)
                     if abs(self.arm.get_current_wrench_body()[2]) >= THRESH:
                         goal.p[2] += 0.001
                         break
-                    elif k == 70:
+                    elif k == 69:
                         print("Did not reach surface")
 
-                for k in range(50):
+                for k in range(20): # In tenths of a millimeter
                     self.data.append([goal.p[2], self.arm.get_current_wrench_body()[2]])
                     goal.p[2] -= 0.0001
                     self.arm.move(goal)
                     if abs(self.arm.get_current_wrench_body()[2]) >= THRESH:
                         dist = (prev_goal.p - self.arm.get_current_position().p)[2]
                         print(prev_goal.p)
-                        print(self.arm.get_current_position().p)
+                        self.data.append(list(prev_goal.p) + list(self.arm.get_current_position().p))
                         print("Distance: %fmm" % (dist * 1000))
                         goal.p[2] = prev_goal.p[2]
                         break
