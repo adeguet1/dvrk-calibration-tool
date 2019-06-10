@@ -24,6 +24,7 @@ class Calibration:
         self.home()
         self.prepare_cartesian()
         self.data = []
+        numpy.set_printoptions(suppress=True)
 
     def home(self):
         print(rospy.get_caller_id(), ' -> starting home')
@@ -71,63 +72,9 @@ class Calibration:
                     goal.p[0] = pts[0].p[0] + (nsamples - col - 1) * width / nsamples
                 self.arm.move(goal)
 
-                # prev_goal = copy(goal)
-
-                # for k in range(50):
-
-                #     goal.p[2] -= 0.001
-                #     self.arm.move(goal)
-                #     if self.arm.get_desired_joint_effort()[2] >= 1:
-                #         goal.p[2] += 0.001
-                #         break
-
-                # for k in range(10):
-                #     goal.p[2] -= 0.0001
-                #     self.arm.move(goal)
-                #     if self.arm.get_desired_join_effort()[2] >= 1:
-                #         dist = (prev_goal - goal)[2]
-                #         goal.p[2] += dist
-
-
-                # self.arm.move(goal)
-                # # move down until forces acts upon the motor
-                time.sleep(0.3)
-
-        print(rospy.get_caller_id(), '<- calibration complete')
-    
-    def calibrate3d(self, pts, nsamples):
-        # if not len(pts) == 3:
-        #     return False
-
-        MOVE_RES = 100
-        goal = PyKDL.Frame()
-        goal.p = copy(pts[0].p)
-        goal.M = PyKDL.Rotation(0, 1, 0, 1, 0, 0, 0, 0, -1)
-        
-        for i in range(MOVE_RES+1):
-            goal.p = pts[2].p + i / MOVE_RES * (pts[0].p - pts[2].p)
-            self.arm.move(goal)
-
-
-        for i in range(nsamples + 1):
-            rightside = pts[1].p + i / nsamples * (pts[2].p - pts[1].p)
-            leftside = pts[0].p + i / nsamples * (pts[2].p - pts[1].p)
-            print("moving arm: i =", i)
-            for j in range(nsamples + 1):
-                print("\tmoving arm: j =", j)
-                goal.M = PyKDL.Rotation(0, 1, 0, 1, 0, 0, 0, 0, -1)
-                if i % 2 == 0:
-                    goal.p = leftside + j / nsamples * (rightside - leftside)
-                else:
-                    goal.p = rightside + j / nsamples * (leftside - rightside)
-                
-                goal.p[2] += 0.01
-                self.arm.move(goal)
-
                 prev_goal = copy(goal)
-                goal.p[2] -= 0.005
 
-                for k in range(70):
+                for k in range(50):
 
                     goal.p[2] -= 0.001
                     self.arm.move(goal)
@@ -138,11 +85,80 @@ class Calibration:
                 for k in range(10):
                     goal.p[2] -= 0.0001
                     self.arm.move(goal)
-                    if self.arm.get_desired_joint_effort()[2] >= 1:
-                        dist = (prev_goal.p - goal.p)[2]
-                        print("Distance: %fcm" % (dist / 100))
-                        goal.p[2] = prev_goal.p[2]
+                    if self.arm.get_desired_join_effort()[2] >= 1:
+                        print(self.arm.get_current_wrench_body())
+                        dist = (prev_goal - goal)[2]
+                        goal.p[2] += dist
 
+
+                self.arm.move(goal)
+                # move down until forces acts upon the motor
+                time.sleep(0.3)
+
+        print(rospy.get_caller_id(), '<- calibration complete')
+    
+    def calibrate3d(self, pts, nsamples):
+        if not len(pts) == 3:
+            return False
+
+        MOVE_RES = 25
+        THRESH = 1.5
+        initial = PyKDL.Frame()
+        initial.p = copy(pts[2].p)
+        initial.M = PyKDL.Rotation(0, 1, 0, 1, 0, 0, 0, 0, -1)
+        initial.p[2] += 0.02
+        self.arm.move(initial)
+
+        goal = PyKDL.Frame()
+        goal.p = copy(pts[0].p)
+        goal.M = PyKDL.Rotation(0, 1, 0, 1, 0, 0, 0, 0, -1)
+        
+        for i in range(MOVE_RES+1):
+            goal.p = initial.p + i / MOVE_RES * (pts[0].p - initial.p)
+            self.arm.move(goal)
+
+
+        for i in range(nsamples):
+            rightside = pts[1].p + i / (nsamples - 1) * (pts[2].p - pts[1].p)
+            leftside = pts[0].p + i / (nsamples - 1) * (pts[2].p - pts[1].p)
+            print("moving arm: i =", i)
+            for j in range(nsamples):
+                print("\tmoving arm: j =", j)
+                goal.M = PyKDL.Rotation(0, 1, 0, 1, 0, 0, 0, 0, -1)
+                if i % 2 == 0:
+                    goal.p = leftside + j / (nsamples - 1) * (rightside - leftside)
+                else:
+                    goal.p = rightside + j / (nsamples - 1) * (leftside - rightside)
+                
+                prev_goal = copy(goal)
+                goal.p[2] += 0.01
+                self.arm.move(goal)
+
+                for k in range(70):
+                    self.data.append([goal.p[2], self.arm.get_current_wrench_body()[2]])
+                    goal.p[2] -= 0.001
+                    self.arm.move(goal)
+                    if abs(self.arm.get_current_wrench_body()[2]) >= THRESH:
+                        goal.p[2] += 0.001
+                        break
+                    elif k == 70:
+                        print("Did not reach surface")
+
+                for k in range(50):
+                    self.data.append([goal.p[2], self.arm.get_current_wrench_body()[2]])
+                    goal.p[2] -= 0.0001
+                    self.arm.move(goal)
+                    if abs(self.arm.get_current_wrench_body()[2]) >= THRESH:
+                        dist = (prev_goal.p - self.arm.get_current_position().p)[2]
+                        print(prev_goal.p)
+                        print(self.arm.get_current_position().p)
+                        print("Distance: %fmm" % (dist * 1000))
+                        goal.p[2] = prev_goal.p[2]
+                        break
+                    elif k == 19:
+                        print("Did not reach surface 1")
+
+                goal.p[2] += 0.01
                 self.arm.move(goal)
                 # move down until forces acts upon the motor
 
@@ -171,10 +187,10 @@ class Calibration:
         return pts
 
     def output_to_csv(self, filename):
-        with open(filename, 'w', newline='') as csvfile:
-            writer = csv.writer(csvfile, delimiter=' ',
-                                quotechar='|', quoting=csv.QUOTE_MINIMAL)
-            for row in data:
+        with open(filename, 'w') as csvfile:
+            writer = csv.writer(csvfile, delimiter=',',
+                                quotechar='"', quoting=csv.QUOTE_MINIMAL)
+            for row in self.data:
                 writer.writerow(row)
     
 
@@ -186,7 +202,8 @@ if __name__ == "__main__":
         else:
             calibration = Calibration(sys.argv[1])
             pts = calibration.get_3pts()
-            calibration.calibrate3d(pts, 5)
+            calibration.calibrate3d(pts, 2)
+            calibration.output_to_csv("data.csv")
 
     except rospy.ROSInterruptException:
         pass
