@@ -191,9 +191,9 @@ class Calibration:
         pts = []
         raw_input("Hello. Pick the first corner, then press enter")
         pts.append(self.arm.get_current_position())
-        raw_input("Pick the second corner (clockwise), then press enter")
+        raw_input("Pick the second corner, then press enter")
         pts.append(self.arm.get_current_position())
-        raw_input("Pick the third corner (clockwise), then press enter")
+        raw_input("Pick the third corner, then press enter")
         pts.append(self.arm.get_current_position())
         return pts
 
@@ -203,10 +203,10 @@ class Calibration:
         else:
             filename, file_ext = os.path.splitext(fpath)
             i = 1
-            new_fname = "{}_{}{}".format(filename, i, file_extension)
+            new_fname = "{}_{}{}".format(filename, i, file_ext)
             while os.path.exists(new_fname):
                 i += 1
-            new_fname = "{}_{}{}".format(filename, i, file_extension)
+            new_fname = "{}_{}{}".format(filename, i, file_ext)
         
         with open(new_fname, 'w') as csvfile:
             writer = csv.writer(csvfile, delimiter=',',
