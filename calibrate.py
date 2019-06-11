@@ -1,3 +1,4 @@
+#!/usr/bin/env python
 """
 Notes for myself:
     i use arm to pick two points to create square
@@ -7,6 +8,8 @@ Notes for myself:
 
 
 from __future__ import print_function, division
+import sys
+import os.path
 from copy import copy
 import time
 import math
@@ -106,17 +109,24 @@ class Calibration:
         initial = PyKDL.Frame()
         initial.p = copy(pts[2].p)
         initial.M = PyKDL.Rotation(0, 1, 0, 1, 0, 0, 0, 0, -1)
-        initial.p[2] += 0.02
+        initial.p[2] += 0.05
         self.arm.move(initial)
 
-        goal = PyKDL.Frame()
-        goal.p = copy(pts[0].p)
-        goal.M = PyKDL.Rotation(0, 1, 0, 1, 0, 0, 0, 0, -1)
-        
-        for i in range(MOVE_RES+1):
-            goal.p = initial.p + i / MOVE_RES * (pts[0].p - initial.p)
-            self.arm.move(goal)
+        final = PyKDL.Frame()
+        final.p = copy(pts[0].p)
+        final.M = PyKDL.Rotation(0, 1, 0, 1, 0, 0, 0, 0, -1)
+        final.p[2] += 0.05
 
+#         intermediate = PyKDL.Frame()
+#         intermediate.M = PyKDL.Rotation(0, 1, 0, 1, 0, 0, 0, 0, -1)
+        
+#         for i in range(MOVE_RES+1):
+#             intermediate.p = initial.p + i / MOVE_RES * (final.p - initial.p)
+#             self.arm.move(intermediate)
+
+        self.arm.move(final)
+
+        goal = PyKDL.Frame()
 
         for i in range(nsamples):
             rightside = pts[1].p + i / (nsamples - 1) * (pts[2].p - pts[1].p)
@@ -134,29 +144,30 @@ class Calibration:
                 goal.p[2] += 0.01
                 self.arm.move(goal)
 
-                for k in range(10):
-                    self.data.append([goal.p[2], self.arm.get_current_wrench_body()[2]])
+                for k in range(20):
                     goal.p[2] -= 0.001
                     self.arm.move(goal)
                     if abs(self.arm.get_current_wrench_body()[2]) >= THRESH:
                         goal.p[2] += 0.001
                         break
-                    elif k == 69:
-                        print("Did not reach surface")
+                    elif k == 19:
+                        print("Error: Did not reach surface")
+                        sys.exit(1)
 
                 for k in range(20): # In tenths of a millimeter
-                    self.data.append([goal.p[2], self.arm.get_current_wrench_body()[2]])
                     goal.p[2] -= 0.0001
                     self.arm.move(goal)
                     if abs(self.arm.get_current_wrench_body()[2]) >= THRESH:
                         dist = (prev_goal.p - self.arm.get_current_position().p)[2]
                         print(prev_goal.p)
-                        self.data.append(list(prev_goal.p) + list(self.arm.get_current_position().p))
+                        self.data.append(list(self.arm.get_current_position().p))
                         print("Distance: %fmm" % (dist * 1000))
                         goal.p[2] = prev_goal.p[2]
                         break
                     elif k == 19:
-                        print("Did not reach surface 1")
+                        print("Error: Did not reach surface when rechecking")
+                        sys.exit(1)
+                        
 
                 goal.p[2] += 0.01
                 self.arm.move(goal)
@@ -186,8 +197,18 @@ class Calibration:
         pts.append(self.arm.get_current_position())
         return pts
 
-    def output_to_csv(self, filename):
-        with open(filename, 'w') as csvfile:
+    def output_to_csv(self, fpath):
+        if not os.path.exists(fpath):
+            new_fname = fpath
+        else:
+            filename, file_ext = os.path.splitext(fpath)
+            i = 1
+            new_fname = "{}_{}{}".format(filename, i, file_extension)
+            while os.path.exists(new_fname):
+                i += 1
+            new_fname = "{}_{}{}".format(filename, i, file_extension)
+        
+        with open(new_fname, 'w') as csvfile:
             writer = csv.writer(csvfile, delimiter=',',
                                 quotechar='"', quoting=csv.QUOTE_MINIMAL)
             for row in self.data:
@@ -195,14 +216,13 @@ class Calibration:
     
 
 if __name__ == "__main__":
-    import sys
     try:
         if (len(sys.argv) != 2):
             print(sys.argv[0], ' requires one argument, i.e. name of dVRK arm')
         else:
             calibration = Calibration(sys.argv[1])
             pts = calibration.get_3pts()
-            calibration.calibrate3d(pts, 2)
+            calibration.calibrate3d(pts, 6)
             calibration.output_to_csv("data.csv")
 
     except rospy.ROSInterruptException:
