@@ -206,8 +206,7 @@ class Calibration:
             new_fname = "{}_{}{}".format(filename, i, file_ext)
             while os.path.exists(new_fname):
                 i += 1
-            new_fname = "{}_{}{}".format(filename, i, file_ext)
-        
+                new_fname = "{}_{}{}".format(filename, i, file_ext)
         with open(new_fname, 'w') as csvfile:
             writer = csv.writer(csvfile, delimiter=',',
                                 quotechar='"', quoting=csv.QUOTE_MINIMAL)
