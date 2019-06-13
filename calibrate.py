@@ -108,13 +108,13 @@ class Calibration:
         THRESH = 1.5
         initial = PyKDL.Frame()
         initial.p = copy(pts[2].p)
-        initial.M = PyKDL.Rotation(0, 1, 0, 1, 0, 0, 0, 0, -1)
+        initial.M = PyKDL.Rotation(1, 0, 0, 0, -1, 0, 0, 0, -1)
         initial.p[2] += 0.05
         self.arm.move(initial)
 
         final = PyKDL.Frame()
         final.p = copy(pts[0].p)
-        final.M = PyKDL.Rotation(0, 1, 0, 1, 0, 0, 0, 0, -1)
+        final.M = PyKDL.Rotation(1, 0, 0, 0, -1, 0, 0, 0, -1)
         final.p[2] += 0.05
 
 #         intermediate = PyKDL.Frame()
@@ -134,7 +134,7 @@ class Calibration:
             print("moving arm: i =", i)
             for j in range(nsamples):
                 print("\tmoving arm: j =", j)
-                goal.M = PyKDL.Rotation(0, 1, 0, 1, 0, 0, 0, 0, -1)
+                goal.M = PyKDL.Rotation(1, 0, 0, 0, -1, 0, 0, 0, -1)
                 if i % 2 == 0:
                     goal.p = leftside + j / (nsamples - 1) * (rightside - leftside)
                 else:
