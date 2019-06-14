@@ -14,7 +14,7 @@ if len(sys.argv) == 2:
 else:
     filename = "data.csv"
 
-with open(filename, "rb") as csvfile:
+with open(filename, "r") as csvfile:
     reader = csv.reader(csvfile, delimiter=',', quotechar='"')
     for row in reader:
         x.append(float(row[0]))
