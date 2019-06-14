@@ -1,11 +1,4 @@
 #!/usr/bin/env python
-"""
-Notes for myself:
-    i use arm to pick two points to create square
-    i use a grid pattern and record pts
-    i analyze pts
-"""
-
 
 from __future__ import print_function, division
 import sys
