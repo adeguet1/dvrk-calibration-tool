@@ -40,6 +40,8 @@ for pt in data:
             abs(C[0] * pt[0] + C[1] * pt[1] + C[2] * pt[2]) /
             np.sqrt(C[0] ** 2 + C[1] ** 2 + C[2] ** 2))
 
+print("({})x + ({})y + {}".format(C[0], C[1], C[2]))
+
 print("Errors:")
 print("-------------------")
 print(errors)
