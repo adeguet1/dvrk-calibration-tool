@@ -137,7 +137,7 @@ class Calibration:
                 goal.p[2] += 0.01
                 self.arm.move(goal)
 
-                for k in range(20):
+                for k in range(20): # in millimeters
                     goal.p[2] -= 0.001
                     self.arm.move(goal)
                     if abs(self.arm.get_current_wrench_body()[2]) >= THRESH:
@@ -153,7 +153,7 @@ class Calibration:
                     if abs(self.arm.get_current_wrench_body()[2]) >= THRESH:
                         dist = (prev_goal.p - self.arm.get_current_position().p)[2]
                         print(prev_goal.p)
-                        self.data.append(list(self.arm.get_current_position().p))
+                        self.data.append(list(self.arm.get_current_position().p) + list(self.arm.get_current_joint_position()))
                         print("Distance: %fmm" % (dist * 1000))
                         goal.p[2] = prev_goal.p[2]
                         break
@@ -214,7 +214,7 @@ if __name__ == "__main__":
         else:
             calibration = Calibration(sys.argv[1])
             pts = calibration.get_3pts()
-            calibration.calibrate3d(pts, 6)
+            calibration.calibrate3d(pts, 10)
             calibration.output_to_csv("data.csv")
 
     except rospy.ROSInterruptException:
