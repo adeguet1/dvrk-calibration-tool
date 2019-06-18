@@ -1,1 +1,1 @@
-# calibration_tool
+# dvrk-calibration-tool
