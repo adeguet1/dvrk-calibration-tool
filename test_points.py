@@ -18,17 +18,24 @@ def gen_best_fit(pts):
 
 
 def gen_best_fit_error(pts):
-    C = gen_best_fit(pts)
+    A, B, C = gen_best_fit(pts)
     errors = np.array([])
 
-    for pt in pts:
-        errors = np.append(errors,
-                           abs(C[0] * pt[0] + C[1] * pt[1] + C[2] * pt[2]) /
-                           np.sqrt(C[0] ** 2 + C[1] ** 2 + C[2] ** 2))
+    direction = np.array([A, B, -1])
+    normal = direction / np.linalg.norm(direction)
 
-    # return sum(errors) / len(errors)
+    projections = np.array([])
+
+    for pt in pts:
+        dist = np.dot(normal, pt - np.array([0, 0, C]))
+        projection = pt - dist * normal
+        projections = np.append(projections, projection)
+        projections = projections.reshape(-1, 3)
+        errors = np.append(errors, dist)
+        # print(A * projection[0] + B * projection[1] + C - projection[2])
+
     return np.sqrt(sum([error ** 2 for error in errors]) /
-                   len(errors))
+                                len(errors))
 
 
 def choose_filename(fpath):
@@ -75,10 +82,11 @@ if __name__ == "__main__":
         fk_plot = csv.writer(outfile)
         for num, offset in enumerate(np.arange(-.9, .09, .001)):
             data = joints.copy()
-            fk_pts = np.zeros(coords.shape)
-            for i, q in enumerate(data):
+            fk_pts = np.array([])
+            for q in data:
                 q[2] += offset
-                fk_pts[i] = rob.ForwardKinematics(q)[:3, 3]
+                fk_pts = np.append(fk_pts, rob.ForwardKinematics(q)[:3, 3])
+            fk_pts = fk_pts.reshape((-1, 3))
             error = gen_best_fit_error(fk_pts)
             if num == 0 or error < min:
                 min = error
