@@ -7,7 +7,6 @@ import numpy as np
 import scipy.linalg
 import cisstRobotPython as crp
 
-np.set_printoptions(suppress=True)
 
 
 def gen_best_fit(pts):
