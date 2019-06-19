@@ -28,6 +28,18 @@ class Calibration:
         self.rob = crp.robManipulator()
         numpy.set_printoptions(suppress=True)
 
+    def choose_filename(fpath):
+        if not os.path.exists(fpath):
+            new_fname = fpath
+        else:
+            fname, file_ext = os.path.splitext(fpath)
+            i = 1
+            new_fname = "{}_{}{}".format(fname, i, file_ext)
+            while os.path.exists(new_fname):
+                i += 1
+                new_fname = "{}_{}{}".format(fname, i, file_ext)
+        return new_fname
+
     def home(self):
         print(rospy.get_caller_id(), ' -> starting home')
         self.arm.home()
@@ -48,7 +60,17 @@ class Calibration:
             goal[1] = 0.0
             goal[2] = 0.12
             self.arm.move_joint(goal, interpolate = True)
-        
+
+    def get_corners(self):
+        pts = []
+        raw_input("Hello. Pick the first corner, then press enter. ")
+        pts.append(self.arm.get_current_position())
+        raw_input("Pick the second corner, then press enter. ")
+        pts.append(self.arm.get_current_position())
+        raw_input("Pick the third corner, then press enter. ")
+        pts.append(self.arm.get_current_position())
+        return pts
+
     def record_points(self, pts, nsamples):
         if not len(pts) == 3:
             return False
@@ -119,65 +141,11 @@ class Calibration:
                 time.sleep(0.5)
         print(rospy.get_caller_id(), '<- calibration complete')
 
-    def get_offset(self):
-        min = 0
-        min_offset = 0
-
-        with open(self.error_fk_outfile) as outfile:
-            fk_plot = csv.writer(outfile)
-            for num, offset in enumerate(np.arange(-.9, .09, .001)):
-                data = joints.copy()
-                fk_pts = np.array([])
-                for q in data:
-                    q[2] += offset
-                    fk_pts = np.append(fk_pts, rob.ForwardKinematics(q)[:3, 3])
-                fk_pts = fk_pts.reshape((-1, 3))
-                error = gen_best_fit_error(fk_pts)
-                if num == 0 or error < min:
-                    min = error
-                    min_offset = offset
-                fk_plot.writerow([offset, error])
-
-
-        for num, offset in enumerate(np.arange(min_offset - 0.02,
-                                               min_offset + 0.02,
-                                               0.0001)):
-            data = joints.copy()
-            fk_pts = np.zeros(coords.shape)
-            for i, q in enumerate(data):
-                q[2] += offset
-                fk_pts[i] = rob.ForwardKinematics(q)[:3, 3]
-            error = gen_best_fit_error(fk_pts)
-            if num == 0 or error < min:
-                min = error
-                min_offset = offset
-
-        print(min_offset)
-        
-
-    def get_corners(self):
-        pts = []
-        raw_input("Hello. Pick the first corner, then press enter. ")
-        pts.append(self.arm.get_current_position())
-        raw_input("Pick the second corner, then press enter. ")
-        pts.append(self.arm.get_current_position())
-        raw_input("Pick the third corner, then press enter. ")
-        pts.append(self.arm.get_current_position())
-        return pts
-
-    def output_to_csv(self, fpath):
-        with open(self.data_file, 'w') as csvfile:
-            writer = csv.writer(csvfile, delimiter=',',
-                                quotechar='"', quoting=csv.QUOTE_MINIMAL)
-            for row in self.data:
-                writer.writerow(row)
-
     def gen_best_fit(self, pts):
         # best-fit linear plane
         A = np.c_[pts[:, 0], pts[:, 1], np.ones(pts.shape[0])]
         C, _, _, _ = scipy.linalg.lstsq(A, pts[:, 2])    # coefficients
         return C
-
 
     def gen_best_fit_error(self, pts):
         A, B, C = gen_best_fit(pts)
@@ -199,6 +167,47 @@ class Calibration:
 
         return np.sqrt(sum([error ** 2 for error in errors]) /
                                     len(errors))
+
+    def get_offset(self):
+        min = 0
+        min_offset = 0
+
+        with open(self.error_fk_outfile) as outfile:
+            fk_plot = csv.writer(outfile)
+            for num, offset in enumerate(np.arange(-.9, .09, .001)):
+                data = joints.copy()
+                fk_pts = np.array([])
+                for q in data:
+                    q[2] += offset
+                    fk_pts = np.append(fk_pts, rob.ForwardKinematics(q)[:3, 3])
+                fk_pts = fk_pts.reshape((-1, 3))
+                error = gen_best_fit_error(fk_pts)
+                if num == 0 or error < min:
+                    min = error
+                    min_offset = offset
+                fk_plot.writerow([offset, error])
+
+        for num, offset in enumerate(np.arange(min_offset - 0.02,
+                                               min_offset + 0.02,
+                                               0.0001)):
+            data = joints.copy()
+            fk_pts = np.zeros(coords.shape)
+            for i, q in enumerate(data):
+                q[2] += offset
+                fk_pts[i] = rob.ForwardKinematics(q)[:3, 3]
+            error = gen_best_fit_error(fk_pts)
+            if num == 0 or error < min:
+                min = error
+                min_offset = offset
+
+        print(min_offset)
+
+    def output_to_csv(self, fpath):
+        with open(self.data_file, 'w') as csvfile:
+            writer = csv.writer(csvfile, delimiter=',',
+                                quotechar='"', quoting=csv.QUOTE_MINIMAL)
+            for row in self.data:
+                writer.writerow(row)
 
     def plot_data(self, use_data_file=True):
         coords = np.array([])
@@ -233,18 +242,6 @@ class Calibration:
         plt.ylabel('Y')
         ax.set_zlabel('Z')
         plt.show()
-
-    def choose_filename(fpath):
-        if not os.path.exists(fpath):
-            new_fname = fpath
-        else:
-            fname, file_ext = os.path.splitext(fpath)
-            i = 1
-            new_fname = "{}_{}{}".format(fname, i, file_ext)
-            while os.path.exists(new_fname):
-                i += 1
-                new_fname = "{}_{}{}".format(fname, i, file_ext)
-        return new_fname
 
 
 def parse_record(args):
