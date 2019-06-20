@@ -6,6 +6,7 @@ import os.path
 from copy import copy
 import time
 import argparse
+import xml.etree.ElementTree as ET
 import csv
 import numpy as np
 import matplotlib.pyplot as plt
@@ -13,35 +14,25 @@ from mpl_toolkits.mplot3d import Axes3D
 import PyKDL
 import rospy
 import dvrk
-from analyze_data import get_offset, get_best_fit
+from analyze_data import get_new_offset, get_best_fit
 
 
 class Calibration:
+
     def __init__(self, robot_name=None, data_file="data/data.csv"):
         print("initializing calibration for", robot_name)
         print("have a flat surface below the robot")
         self.arm = dvrk.arm(robot_name)
         self.home()
-        self.prepare_cartesian()
         self.data = []
         # Add checker for directory
         self.data_file = choose_filename(data_file)
 
     def home(self):
+        "Goes to x = 0, y = 0, extends joint 2 past the cannula, and sets home"
+        # make sure the camera is past the cannula and tool vertical
         print("starting home")
         self.arm.home()
-        # get current joints just to set size
-        goal = np.copy(self.arm.get_current_joint_position())
-        # go to zero position in order
-        # for PSM and ECM to make sure 3rd joint is past cannula
-        goal.fill(0)
-        if ((self.arm.name() == 'PSM1') or (self.arm.name() == 'PSM2') or
-            (self.arm.name() == 'PSM3') or (self.arm.name() == 'ECM')):
-            goal[2] = 0.12
-        self.arm.move_joint(goal)
-
-    def prepare_cartesian(self):
-        # make sure the camera is past the cannula and tool vertical
         goal = np.copy(self.arm.get_current_joint_position())
         if ((self.arm.name() == 'PSM1') or (self.arm.name() == 'PSM2') or
             (self.arm.name() == 'PSM3') or (self.arm.name() == 'ECM')):
@@ -52,6 +43,7 @@ class Calibration:
             self.arm.move_joint(goal, interpolate = True)
 
     def get_corners(self):
+        "Gets input from user to get three corners of the plane"
         pts = []
         raw_input("Hello. Pick the first corner, then press enter. ")
         pts.append(self.arm.get_current_position())
@@ -62,10 +54,11 @@ class Calibration:
         return pts
 
     def record_points(self, pts, nsamples, verbose=False):
+        """Moves in a zig-zag pattern in a grid and records the points
+        at which the arm reaches the surface"""
         if not len(pts) == 3:
             return False
 
-        MOVE_RES = 25
         THRESH = 1.5
         initial = PyKDL.Frame()
         initial.p = copy(pts[2].p)
@@ -90,11 +83,11 @@ class Calibration:
                 print("\tmoving arm to column ", j)
                 goal.M = PyKDL.Rotation(1, 0, 0, 0, -1, 0, 0, 0, -1)
                 if i % 2 == 0:
-                    goal.p = leftside + j / (nsamples - 1) * \
-                                            (rightside - leftside)
+                    goal.p = leftside + j / ((nsamples - 1) *
+                                             (rightside - leftside))
                 else:
-                    goal.p = rightside + j / (nsamples - 1) * \
-                                             (leftside - rightside)
+                    goal.p = rightside + j / ((nsamples - 1) *
+                                              (leftside - rightside))
                 
                 prev_goal = copy(goal)
                 goal.p[2] += 0.01
@@ -224,9 +217,22 @@ def parse_view(args):
 
 
 def parse_analyze(args):
-    offset = get_offset(args.input, args.output)
+    offset = get_new_offset(args.input, args.output)
     if args.write:
-        raise NotImplementedError("Cannot currently write output to xml file")
+        if os.path.exists(args.write):
+            print("Writing offset...")
+            tree = ET.parse(args.write)
+            root = tree.getroot()
+            current_offset = float(root[0][2][2][1].attrib["Offset"])
+            # Write to <Config><Robot><Actuator ActuatorID=2>
+            #              <AnalogIn><VoltstoPosSI> Offset
+            root[0][2][2][1].attrib["Offset"] = str(offset + 
+                current_offset)
+            tree.write(args.write)
+        else:
+            print("Error: File does not exist")
+            sys.exit(1)
+
 
 
 if __name__ == "__main__":
@@ -302,7 +308,6 @@ if __name__ == "__main__":
         "-w", "--write",
         help="write offset to file",
         default=False,
-        action="store_true"
     )
     parser_analyze.set_defaults(func=parse_analyze)
 

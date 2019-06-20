@@ -35,7 +35,7 @@ def get_best_fit_error(pts):
                                 len(errors))
 
 
-def get_offset(data_file=None, error_fk_outfile=None):
+def get_new_offset(data_file=None, error_fk_outfile=None):
 
     rob = crp.robManipulator()
     rob.LoadRobot(ROB_FILE)
@@ -86,5 +86,5 @@ def get_offset(data_file=None, error_fk_outfile=None):
             min = error
             min_offset = offset
 
-    print(min_offset)
+    return min_offset
 
