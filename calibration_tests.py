@@ -12,4 +12,8 @@ class TestCalibration(unittest.TestCase):
         dist = np.dot(normal, pt - np.array([0, 0, C]))
         projection = pt - dist * normal
         
-        self.assertAlmostEqual(A * projection[0] + B * projection[1] + C - projection[2], 0)
+        self.assertAlmostEqual(
+            A * projection[0] +
+            B * projection[1] +
+            C - projection[2], 0
+        )

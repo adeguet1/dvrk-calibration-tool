@@ -50,7 +50,7 @@ def get_new_offset(data_file=None, error_fk_outfile=None):
         reader = csv.reader(infile)
         for row in reader:
             joints = np.append(joints,
-                               np.array([float(x) for x in row[3:]]))
+                               np.array([float(x) for x in row[3:9]]))
             coords = np.append(coords,
                                np.array([float(x) for x in row[:3]]))
 

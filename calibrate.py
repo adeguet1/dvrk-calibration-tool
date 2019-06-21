@@ -15,18 +15,29 @@ import PyKDL
 import rospy
 import dvrk
 from analyze_data import get_new_offset, get_best_fit
+from cisstCommonPython import *
+from cisstVectorPython import *
+from cisstOSAbstractionPython import *
+from cisstMultiTaskPython import *
+from cisstParameterTypesPython import *
 
 
 class Calibration:
 
-    def __init__(self, robot_name=None, data_file="data/data.csv"):
+    def __init__(self, robot_name, data_file=None, polaris=False):
         print("initializing calibration for", robot_name)
         print("have a flat surface below the robot")
-        self.arm = dvrk.arm(robot_name)
-        self.home()
         self.data = []
         # Add checker for directory
-        self.data_file = choose_filename(data_file)
+        self.data_file = choose_filename(data_file) if data_file else None
+
+        self.arm = dvrk.arm(robot_name)
+        self.home()
+        if polaris:
+            self.init_polaris()
+            self.polaris = True
+        else:
+            self.polaris = False
 
     def home(self):
         "Goes to x = 0, y = 0, extends joint 2 past the cannula, and sets home"
@@ -41,6 +52,82 @@ class Calibration:
             goal[1] = 0.0
             goal[2] = 0.12
             self.arm.move_joint(goal, interpolate = True)
+    
+    def init_polaris(self):
+        NAME = "NDITracker"
+        CONFIG_FILENAME = ("/home/cnookal1/catkin_ws/src/cisst-saw/"
+            "sawNDITracker/share/polaris-active-tools.json")
+        PORT = "/dev/ttyUSB0"
+        PERIOD = 0.01
+        manager = mtsManagerLocal.GetInstance()
+        manager.CreateAllAndWait(5.0)
+        manager.StartAllAndWait(5.0)
+
+        proxy = mtsComponentWithManagement('{}Proxy'.format(NAME))
+        manager.AddComponent(proxy)
+        proxy.CreateAndWait(5.0)
+        time.sleep(0.5)
+
+        services = proxy.GetManagerComponentServices()
+        result = services.Load('sawNDITracker')
+
+        if not result:
+            print("Error: unable to connect")
+            return False
+
+        args = mtsTaskPeriodicConstructorArg(NAME, PERIOD, False, 256)
+        result = services.ComponentCreate('mtsNDISerial', args)
+
+        if not result:
+            print("Error: unable to connect")
+            return False
+
+        component = manager.GetComponent(NAME)
+        component.Configure(CONFIG_FILENAME)
+        controller = proxy.AddInterfaceRequiredAndConnect((NAME, 'Controller'))
+
+        component.CreateAndWait(5.0)
+        component.StartAndWait(5.0)
+
+        # initialize controller
+        print ('--> connect tracker to port')
+        controller.Connect(PORT)
+        time.sleep(2.0)
+
+        # see if the device is actually connected
+        print('--> make the tracker beep to make sure everything is ok')
+        controller.Beep(1)
+        time.sleep(1.0)
+        controller.Beep(2)
+
+        # look for all tools
+        toolNames = controller.ToolNames()
+
+        # create and connect interface for each tool
+        print ('--> connect interfaces for all tools')
+        tools = {}
+        for toolName in toolNames:
+            print('  -- found tool: ' + toolName)
+            tools[toolName] = (proxy.AddInterfaceRequiredAndConnect((NAME, toolName), 5))
+
+        # enable tracking
+        print('--> enabling tracking and beep twice')
+        controller.ToggleTracking(True)
+        controller.Beep(2)
+
+        if "Pointer" in tools:
+            self.pointer = tools["Pointer"]
+            return True
+        else:
+            print("Error: pointer not detected")
+            return False
+
+    def get_pointer_current_position(self):
+        pose = self.pointer.GetPositionCartesian()
+        if pose.GetValid():  # if visible
+            return pose.Position().Translation()
+        else:
+            return False
 
     def get_corners(self):
         "Gets input from user to get three corners of the plane"
@@ -112,7 +199,8 @@ class Calibration:
                             self.arm.get_current_position().p)[2]
                         self.data.append(
                             list(self.arm.get_current_position().p) +
-                            list(self.arm.get_current_joint_position())
+                            list(self.arm.get_current_joint_position()) +
+                            list(self.get_pointer_current_position()) 
                         )
                         if verbose:
                             print("Distance: %fmm" % (dist * 1000))
@@ -134,6 +222,7 @@ class Calibration:
         print(rospy.get_caller_id(), '<- calibration complete')
 
     def output_to_csv(self, fpath):
+        "Outputs contents of self.data to self.data_file"
         with open(self.data_file, 'w') as csvfile:
             writer = csv.writer(
                 csvfile, delimiter=',',
@@ -144,6 +233,8 @@ class Calibration:
 
 
 def choose_filename(fpath):
+    """checks if file at fpath already exists.
+    If so, it increments the file"""
     if not os.path.exists(fpath):
         new_fname = fpath
     else:
@@ -157,22 +248,38 @@ def choose_filename(fpath):
 
 
 def plot_data(data_file):
+    "Plots the data from the csv file data_file"
     coords = np.array([])
+
+    polaris_coords = np.array([])
 
     joints = np.array([])
 
     with open(data_file, 'r') as csvfile:
         reader = csv.reader(csvfile)
         for row in reader:
+            if len(row) == 12:
+                polaris = True
+            else:
+                polaris = False
             joints = np.append(
                 joints,
-                np.array([float(x) for x in row[3:]])
+                np.array([float(x) for x in row[3:9]])
             )
             coords = np.append(
                 coords,
                 np.array([float(x) for x in row[:3]])
             )
+            if polaris:
+                polaris_coords = np.append(
+                    polaris_coords,
+                    np.array([float(x) for x in row[9:12]])
+                )
     coords = coords.reshape(-1, 3)
+    
+    if polaris:
+        polaris_coords = polaris.reshape(-1, 3)
+
     joints = joints.reshape(-1, 6)
 
     X, Y = np.meshgrid(
@@ -187,6 +294,7 @@ def plot_data(data_file):
             0.05
         )
     )
+
     A, B, C = get_best_fit(coords)
     Z = A*X + B*Y + C
 
@@ -195,6 +303,9 @@ def plot_data(data_file):
     ax = fig.gca(projection='3d')
     ax.plot_surface(X, Y, Z, rstride=1, cstride=1, alpha=0.2)
     ax.scatter(coords[:,0], coords[:,1], coords[:,2], c='r', s=20)
+    if polaris:
+        ax.scatter(polaris_coords[:,0], polaris_coords[:,1], polaris_coords[:,2],
+            c='b', s=20)
     plt.xlabel('X')
     plt.ylabel('Y')
     ax.set_zlabel('Z')
