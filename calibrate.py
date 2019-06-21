@@ -34,7 +34,7 @@ class Calibration:
         self.arm = dvrk.arm(robot_name)
         self.home()
         if polaris:
-            self.init_polaris()
+            self.marker = Marker()
             self.polaris = True
         else:
             self.polaris = False
@@ -52,82 +52,6 @@ class Calibration:
             goal[1] = 0.0
             goal[2] = 0.12
             self.arm.move_joint(goal, interpolate = True)
-    
-    def init_polaris(self):
-        NAME = "NDITracker"
-        CONFIG_FILENAME = ("/home/cnookal1/catkin_ws/src/cisst-saw/"
-            "sawNDITracker/share/polaris-active-tools.json")
-        PORT = "/dev/ttyUSB0"
-        PERIOD = 0.01
-        manager = mtsManagerLocal.GetInstance()
-        manager.CreateAllAndWait(5.0)
-        manager.StartAllAndWait(5.0)
-
-        proxy = mtsComponentWithManagement('{}Proxy'.format(NAME))
-        manager.AddComponent(proxy)
-        proxy.CreateAndWait(5.0)
-        time.sleep(0.5)
-
-        services = proxy.GetManagerComponentServices()
-        result = services.Load('sawNDITracker')
-
-        if not result:
-            print("Error: unable to connect")
-            return False
-
-        args = mtsTaskPeriodicConstructorArg(NAME, PERIOD, False, 256)
-        result = services.ComponentCreate('mtsNDISerial', args)
-
-        if not result:
-            print("Error: unable to connect")
-            return False
-
-        component = manager.GetComponent(NAME)
-        component.Configure(CONFIG_FILENAME)
-        controller = proxy.AddInterfaceRequiredAndConnect((NAME, 'Controller'))
-
-        component.CreateAndWait(5.0)
-        component.StartAndWait(5.0)
-
-        # initialize controller
-        print ('--> connect tracker to port')
-        controller.Connect(PORT)
-        time.sleep(2.0)
-
-        # see if the device is actually connected
-        print('--> make the tracker beep to make sure everything is ok')
-        controller.Beep(1)
-        time.sleep(1.0)
-        controller.Beep(2)
-
-        # look for all tools
-        toolNames = controller.ToolNames()
-
-        # create and connect interface for each tool
-        print ('--> connect interfaces for all tools')
-        tools = {}
-        for toolName in toolNames:
-            print('  -- found tool: ' + toolName)
-            tools[toolName] = (proxy.AddInterfaceRequiredAndConnect((NAME, toolName), 5))
-
-        # enable tracking
-        print('--> enabling tracking and beep twice')
-        controller.ToggleTracking(True)
-        controller.Beep(2)
-
-        if "Pointer" in tools:
-            self.pointer = tools["Pointer"]
-            return True
-        else:
-            print("Error: pointer not detected")
-            return False
-
-    def get_pointer_current_position(self):
-        pose = self.pointer.GetPositionCartesian()
-        if pose.GetValid():  # if visible
-            return pose.Position().Translation()
-        else:
-            return False
 
     def get_corners(self):
         "Gets input from user to get three corners of the plane"
@@ -200,7 +124,7 @@ class Calibration:
                         self.data.append(
                             list(self.arm.get_current_position().p) +
                             list(self.arm.get_current_joint_position()) +
-                            list(self.get_pointer_current_position()) 
+                            list(self.marker.get_current_position()) 
                         )
                         if verbose:
                             print("Distance: %fmm" % (dist * 1000))
@@ -278,7 +202,7 @@ def plot_data(data_file):
     coords = coords.reshape(-1, 3)
     
     if polaris:
-        polaris_coords = polaris.reshape(-1, 3)
+        polaris_coords = polaris_coords.reshape(-1, 3)
 
     joints = joints.reshape(-1, 6)
 
