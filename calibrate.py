@@ -25,16 +25,10 @@ from cisstParameterTypesPython import *
 
 class Calibration:
 
-    # ROT_MATRIX = PyKDL.Rotation(
-    #     1,    0,    0,
-    #     0,   -1,    0,
-    #     0,    0,   -1
-    # )
-
     ROT_MATRIX = PyKDL.Rotation(
-        .890108, -0.00402004,    0.455733,
-        0.0808868,   -0.982693,   -0.166651,
-        0.448515,      0.1852,   -0.874377
+        1,    0.20,    0,
+        0.2,   -1,    0,
+        0,    0,   -1
     )
 
     def __init__(self, robot_name, polaris=False):
@@ -123,6 +117,7 @@ class Calibration:
                     goal.p[2] -= 0.001
                     self.arm.move(goal)
                     if abs(self.arm.get_current_wrench_body()[2]) >= THRESH:
+                        print(self.arm.get_current_wrench_body())
                         goal.p[2] += 0.001
                         break
                     elif k == 19:
@@ -159,16 +154,66 @@ class Calibration:
                 time.sleep(0.5)
         print(rospy.get_caller_id(), '<- calibration complete')
     
+    def record_points_polaris(self, pts, nsamples, verbose=False):
+        """Moves in a zig-zag pattern in a grid and records the points
+        at which the arm reaches the surface"""
+        if not len(pts) == 3:
+            return False
+
+        THRESH = 1.5
+        initial = PyKDL.Frame()
+        initial.p = copy(pts[2].p)
+        initial.M = self.ROT_MATRIX
+        initial.p[2] += 0.05
+        self.arm.move(initial)
+
+        final = PyKDL.Frame()
+        final.p = copy(pts[0].p)
+        final.M = self.ROT_MATRIX
+        final.p[2] += 0.05
+
+        self.arm.move(final)
+
+        goal = PyKDL.Frame(self.ROT_MATRIX)
+
+        if verbose:
+            print("Using points {}, {}, and {}".format(*[tuple(pt.p) for pt in pts]))
+
+        for i in range(nsamples):
+            rightside = pts[1].p + i / (nsamples - 1) * (pts[2].p - pts[1].p)
+            leftside = pts[0].p + i / (nsamples - 1) * (pts[2].p - pts[1].p)
+            print("moving arm to row ", i)
+            for j in range(nsamples):
+                print("\tmoving arm to column ", j)
+                if i % 2 == 0:
+                    goal.p = leftside + (j / (nsamples - 1) *
+                                         (rightside - leftside))
+                else:
+                    goal.p = rightside + (j / (nsamples - 1) *
+                                          (leftside - rightside))
+                goal.M = self.ROT_MATRIX
+                self.arm.move(goal)
+                m = list(self.marker.get_current_position())
+                if verbose:
+                    print(m)
+                self.data.append(
+                    m +
+                    list(self.arm.get_current_joint_position()) +
+                    list(self.arm.get_current_position().p)
+                )
+                
+                time.sleep(0.5)
+        print(rospy.get_caller_id(), '<- calibration complete')
+
     def go_to_points(self, fpath):
         """Go to the previously recorded points.
         @fpath: file path to csv for recorded points"""
-        data = []
         with open(fpath, 'r') as csvfile:
             reader = csv.reader(csvfile)
             for row in reader:
                 coord = [float(x) for x in row[:3]]
                 self.arm.move(PyKDL.Frame(self.ROT_MATRIX,
-                                          PyKDL.Vector(coord)))
+                                          PyKDL.Vector(*coord)))
 
     def output_to_csv(self, fpath):
         "Outputs contents of self.data to fpath"
@@ -262,11 +307,19 @@ def plot_data(data_file):
 
 
 def parse_record(args):
+    pts = [
+        PyKDL.Vector(0.02518542567045426, 0.08894104008779766, -0.18251737895625197),
+        PyKDL.Vector(0.04833155338422577, -0.08023285860239543, -0.19002207233045662),
+        PyKDL.Vector(-0.060848553335173985, -0.09092803145921796, -0.1876384813402179)
+    ]
+    pts = [PyKDL.Frame(Calibration.ROT_MATRIX, pt) for pt in pts]
     if args.polaris:
-        raise NotImplementedError("Polaris integration is not yet implemented")
+        calibration = Calibration(args.arm, polaris=True)
+        calibration.record_points_polaris(pts, args.samples, verbose=args.verbose)
     else:
         calibration = Calibration(args.arm)
-        pts = calibration.get_corners()
+        # pts = calibration.get_corners()
+
         calibration.record_points(pts, args.samples, verbose=args.verbose)
 
     calibration.output_to_csv(args.output)
@@ -277,7 +330,7 @@ def parse_view(args):
 
 
 def parse_analyze(args):
-    offset = get_new_offset(args.input, args.output)
+    offset = 1000 * get_new_offset(args.input, args.output)
     if args.write:
         if os.path.exists(args.write):
             print("Writing offset...")
@@ -289,19 +342,17 @@ def parse_analyze(args):
             root[0][2][2][1].attrib["Offset"] = str(offset + 
                 current_offset)
             tree.write(args.write)
-            print(("Wrote offset: {} (Current offset) + {} (Additional offset) "
-                   "= {} (Written offset)").format(current_offset, offset,
+            print(("Wrote offset: {}mm (Current offset) + {}mm (Additional offset) "
+                   "= {}mm (Written offset)").format(current_offset, offset,
                                                    offset + current_offset))
         else:
             print("Error: File does not exist")
             sys.exit(1)
     else:
-        print("Offset:", offset)
+        print("Offset: {}mm".format(offset))
 
 
 if __name__ == "__main__":
-    np.set_printoptions(suppress=True)
-
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "-v", "--verbose",
