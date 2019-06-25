@@ -15,6 +15,7 @@ import PyKDL
 import rospy
 import dvrk
 from analyze_data import get_new_offset, get_best_fit
+from marker import Marker
 from cisstCommonPython import *
 from cisstVectorPython import *
 from cisstOSAbstractionPython import *
@@ -24,12 +25,23 @@ from cisstParameterTypesPython import *
 
 class Calibration:
 
-    def __init__(self, robot_name, data_file=None, polaris=False):
+    # ROT_MATRIX = PyKDL.Rotation(
+    #     1,    0,    0,
+    #     0,   -1,    0,
+    #     0,    0,   -1
+    # )
+
+    ROT_MATRIX = PyKDL.Rotation(
+        .890108, -0.00402004,    0.455733,
+        0.0808868,   -0.982693,   -0.166651,
+        0.448515,      0.1852,   -0.874377
+    )
+
+    def __init__(self, robot_name, polaris=False):
         print("initializing calibration for", robot_name)
         print("have a flat surface below the robot")
         self.data = []
         # Add checker for directory
-        self.data_file = choose_filename(data_file) if data_file else None
 
         self.arm = dvrk.arm(robot_name)
         self.home()
@@ -52,6 +64,7 @@ class Calibration:
             goal[1] = 0.0
             goal[2] = 0.12
             self.arm.move_joint(goal, interpolate = True)
+        self.arm.move(self.ROT_MATRIX)
 
     def get_corners(self):
         "Gets input from user to get three corners of the plane"
@@ -73,18 +86,21 @@ class Calibration:
         THRESH = 1.5
         initial = PyKDL.Frame()
         initial.p = copy(pts[2].p)
-        initial.M = PyKDL.Rotation(1, 0, 0, 0, -1, 0, 0, 0, -1)
+        initial.M = self.ROT_MATRIX
         initial.p[2] += 0.05
         self.arm.move(initial)
 
         final = PyKDL.Frame()
         final.p = copy(pts[0].p)
-        final.M = PyKDL.Rotation(1, 0, 0, 0, -1, 0, 0, 0, -1)
+        final.M = self.ROT_MATRIX
         final.p[2] += 0.05
 
         self.arm.move(final)
 
-        goal = PyKDL.Frame()
+        goal = PyKDL.Frame(self.ROT_MATRIX)
+
+        if verbose:
+            print("Using points {}, {}, and {}".format(*[tuple(pt.p) for pt in pts]))
 
         for i in range(nsamples):
             rightside = pts[1].p + i / (nsamples - 1) * (pts[2].p - pts[1].p)
@@ -92,14 +108,13 @@ class Calibration:
             print("moving arm to row ", i)
             for j in range(nsamples):
                 print("\tmoving arm to column ", j)
-                goal.M = PyKDL.Rotation(1, 0, 0, 0, -1, 0, 0, 0, -1)
                 if i % 2 == 0:
-                    goal.p = leftside + j / ((nsamples - 1) *
-                                             (rightside - leftside))
+                    goal.p = leftside + (j / (nsamples - 1) *
+                                         (rightside - leftside))
                 else:
-                    goal.p = rightside + j / ((nsamples - 1) *
-                                              (leftside - rightside))
-                
+                    goal.p = rightside + (j / (nsamples - 1) *
+                                          (leftside - rightside))
+                goal.M = self.ROT_MATRIX
                 prev_goal = copy(goal)
                 goal.p[2] += 0.01
                 self.arm.move(goal)
@@ -123,8 +138,7 @@ class Calibration:
                             self.arm.get_current_position().p)[2]
                         self.data.append(
                             list(self.arm.get_current_position().p) +
-                            list(self.arm.get_current_joint_position()) +
-                            list(self.marker.get_current_position()) 
+                            list(self.arm.get_current_joint_position())
                         )
                         if verbose:
                             print("Distance: %fmm" % (dist * 1000))
@@ -144,10 +158,21 @@ class Calibration:
                 
                 time.sleep(0.5)
         print(rospy.get_caller_id(), '<- calibration complete')
+    
+    def go_to_points(self, fpath):
+        """Go to the previously recorded points.
+        @fpath: file path to csv for recorded points"""
+        data = []
+        with open(fpath, 'r') as csvfile:
+            reader = csv.reader(csvfile)
+            for row in reader:
+                coord = [float(x) for x in row[:3]]
+                self.arm.move(PyKDL.Frame(self.ROT_MATRIX,
+                                          PyKDL.Vector(coord)))
 
     def output_to_csv(self, fpath):
-        "Outputs contents of self.data to self.data_file"
-        with open(self.data_file, 'w') as csvfile:
+        "Outputs contents of self.data to fpath"
+        with open(choose_filename(fpath), 'w') as csvfile:
             writer = csv.writer(
                 csvfile, delimiter=',',
                 quotechar='"', quoting=csv.QUOTE_MINIMAL
@@ -264,10 +289,14 @@ def parse_analyze(args):
             root[0][2][2][1].attrib["Offset"] = str(offset + 
                 current_offset)
             tree.write(args.write)
+            print(("Wrote offset: {} (Current offset) + {} (Additional offset) "
+                   "= {} (Written offset)").format(current_offset, offset,
+                                                   offset + current_offset))
         else:
             print("Error: File does not exist")
             sys.exit(1)
-
+    else:
+        print("Offset:", offset)
 
 
 if __name__ == "__main__":
