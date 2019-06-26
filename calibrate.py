@@ -57,7 +57,7 @@ class Calibration:
             goal[0] = 0.0
             goal[1] = 0.0
             goal[2] = 0.12
-            self.arm.move_joint(goal, interpolate = True)
+            self.arm.move_joint(goal)
         self.arm.move(self.ROT_MATRIX)
 
     def get_corners(self):
