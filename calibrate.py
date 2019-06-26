@@ -16,11 +16,7 @@ import rospy
 import dvrk
 from analyze_data import get_new_offset, get_best_fit
 from marker import Marker
-from cisstCommonPython import *
-from cisstVectorPython import *
-from cisstOSAbstractionPython import *
-from cisstMultiTaskPython import *
-from cisstParameterTypesPython import *
+from cisstNumericalPython import nmrRegistrationRigid
 
 
 class Calibration:
@@ -160,7 +156,6 @@ class Calibration:
         if not len(pts) == 3:
             return False
 
-        THRESH = 1.5
         initial = PyKDL.Frame()
         initial.p = copy(pts[2].p)
         initial.M = self.ROT_MATRIX
@@ -275,6 +270,15 @@ def plot_data(data_file):
         polaris_coords = polaris_coords.reshape(-1, 3)
 
     joints = joints.reshape(-1, 6)
+
+
+    if polaris:
+        transf, error = nmrRegistrationRigid(polaris_coords, coords)
+        rot_matrix = transf.Rotation()
+        translation = transf.Translation()
+        coords = (coords - translation).dot(rot_matrix)
+        print("Rigid Registration Error: {}".format(error))
+
 
     X, Y = np.meshgrid(
         np.arange(
