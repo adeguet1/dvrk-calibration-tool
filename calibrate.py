@@ -17,15 +17,22 @@ import dvrk
 from analyze_data import get_new_offset, get_best_fit
 from marker import Marker
 from cisstNumericalPython import nmrRegistrationRigid
+from rot_matrix_test import *
 
 
 class Calibration:
 
     ROT_MATRIX = PyKDL.Rotation(
-        1,    0.20,    0,
-        0.2,   -1,    0,
+        1,    0,    0,
+        0,   -1,    0,
         0,    0,   -1
     )
+
+    ROT_MATRIX_NP = np.array([
+        [1,    0,    0],
+        [0,   -1,    0],
+        [0,    0,   -1]
+    ])
 
     def __init__(self, robot_name, polaris=False):
         print("initializing calibration for", robot_name)
@@ -72,6 +79,21 @@ class Calibration:
         at which the arm reaches the surface"""
         if not len(pts) == 3:
             return False
+        
+        # horiz is the line that is horizontal
+        if abs((pts[1].p - pts[0].p)[2]) < abs((pts[2].p - pts[1].p)[2]):
+            p1 = pts[0].p
+        else:
+            p1 = pts[2].p
+        p2 = pts[1].p
+
+        roll = np.arccos(abs((p2 - p1)[0]) / np.sqrt(np.square((p2 - p1)[1])
+                                                     + np.square((p2 - p1)[0])))
+        print(np.rad2deg(roll))
+        
+        offset_rot = rot_matrix(0, 0, 0)
+        new_rot_np = offset_rot.dot(self.ROT_MATRIX_NP)
+        new_rot_kdl = np2kdl(new_rot_np)
 
         THRESH = 1.5
         initial = PyKDL.Frame()
@@ -87,7 +109,7 @@ class Calibration:
 
         self.arm.move(final)
 
-        goal = PyKDL.Frame(self.ROT_MATRIX)
+        goal = PyKDL.Frame(new_rot_kdl)
 
         if verbose:
             print("Using points {}, {}, and {}".format(*[tuple(pt.p) for pt in pts]))
@@ -104,7 +126,6 @@ class Calibration:
                 else:
                     goal.p = rightside + (j / (nsamples - 1) *
                                           (leftside - rightside))
-                goal.M = self.ROT_MATRIX
                 prev_goal = copy(goal)
                 goal.p[2] += 0.01
                 self.arm.move(goal)
@@ -276,7 +297,7 @@ def plot_data(data_file):
         transf, error = nmrRegistrationRigid(polaris_coords, coords)
         rot_matrix = transf.Rotation()
         translation = transf.Translation()
-        coords = (coords - translation).dot(rot_matrix)
+        new_coords = (coords - translation).dot(rot_matrix)
         print("Rigid Registration Error: {}".format(error))
 
 
@@ -300,10 +321,12 @@ def plot_data(data_file):
     fig = plt.figure()
     ax = fig.gca(projection='3d')
     ax.plot_surface(X, Y, Z, rstride=1, cstride=1, alpha=0.2)
-    ax.scatter(coords[:,0], coords[:,1], coords[:,2], c='r', s=20)
     if polaris:
         ax.scatter(polaris_coords[:,0], polaris_coords[:,1], polaris_coords[:,2],
             c='b', s=20)
+        ax.scatter(new_coords[:,0], new_coords[:,1], new_coords[:,2], c='r', s=20)
+    else:
+        ax.scatter(coords[:,0], coords[:,1], coords[:,2], c='r', s=20)
     plt.xlabel('X')
     plt.ylabel('Y')
     ax.set_zlabel('Z')
@@ -311,18 +334,19 @@ def plot_data(data_file):
 
 
 def parse_record(args):
-    pts = [
-        PyKDL.Vector(0.02518542567045426, 0.08894104008779766, -0.18251737895625197),
-        PyKDL.Vector(0.04833155338422577, -0.08023285860239543, -0.19002207233045662),
-        PyKDL.Vector(-0.060848553335173985, -0.09092803145921796, -0.1876384813402179)
-    ]
-    pts = [PyKDL.Frame(Calibration.ROT_MATRIX, pt) for pt in pts]
+    # pts = [
+    #     PyKDL.Vector(0.02518542567045426, 0.08894104008779766, -0.18251737895625197),
+    #     PyKDL.Vector(0.04833155338422577, -0.08023285860239543, -0.19002207233045662),
+    #     PyKDL.Vector(-0.060848553335173985, -0.09092803145921796, -0.1876384813402179)
+    # ]
+    # pts = [PyKDL.Frame(Calibration.ROT_MATRIX, pt) for pt in pts]
     if args.polaris:
         calibration = Calibration(args.arm, polaris=True)
+        pts = calibration.get_corners()
         calibration.record_points_polaris(pts, args.samples, verbose=args.verbose)
     else:
         calibration = Calibration(args.arm)
-        # pts = calibration.get_corners()
+        pts = calibration.get_corners()
 
         calibration.record_points(pts, args.samples, verbose=args.verbose)
 
