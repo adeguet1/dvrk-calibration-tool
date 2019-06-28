@@ -2,7 +2,7 @@ import csv
 import numpy as np
 import scipy.linalg
 import cisstRobotPython as crp
-import itertools
+from cisstNumericalPython import nmrRegistrationRigid
 
 ROB_FILE = ("/home/cnookal1/catkin_ws/src/cisst-saw"
             "/sawIntuitiveResearchKit/share/deprecated/dvpsm.rob")
@@ -48,7 +48,6 @@ def get_new_offset(data_file=None, error_fk_outfile=None):
     coords = np.array([])
 
     with open(data_file) as infile:
-        infile.readline()
         reader = csv.reader(infile)
         for row in reader:
             joints = np.append(joints,
@@ -90,3 +89,63 @@ def get_new_offset(data_file=None, error_fk_outfile=None):
 
     return min_offset
 
+
+def get_new_offset_polaris(data_file=None, error_fk_outfile=None):
+
+    rob = crp.robManipulator()
+    rob.LoadRobot(ROB_FILE)
+
+    min_ = 0
+    min_offset = 0
+
+    joints = np.array([])
+    coords = np.array([])
+    polaris_coords = np.array([])
+
+    with open(data_file) as infile:
+        infile.readline()
+        reader = csv.reader(infile)
+        for row in reader:
+            joints = np.append(joints,
+                               np.array([float(x) for x in row[3:9]]))
+            coords = np.append(coords,
+                               np.array([float(x) for x in row[:3]]))
+            polaris_coords = np.append(
+                polaris_coords,
+                np.array([float(x) for x in row[9:12]])
+            )
+
+    coords = coords.reshape(-1, 3)
+    joints = joints.reshape(-1, 6)
+    polaris_coords = polaris_coords.reshape(-1, 3)
+
+    # Add checker for outfile
+    with open(error_fk_outfile, 'w') as outfile:
+        fk_plot = csv.writer(outfile)
+        for num, offset in enumerate(np.arange(-.9, .09, .001)):
+            data = joints.copy()
+            fk_pts = np.array([])
+            for q in data:
+                q[2] += offset
+                fk_pts = np.append(fk_pts, rob.ForwardKinematics(q)[:3, 3])
+            fk_pts = fk_pts.reshape((-1, 3))
+            _, error = nmrRegistrationRigid(fk_pts, polaris_coords)
+            if num == 0 or error < min_:
+                min_ = error
+                min_offset = offset
+            fk_plot.writerow([offset, error])
+
+    for num, offset in enumerate(np.arange(min_offset - 0.02,
+                                           min_offset + 0.02,
+                                           0.0001)):
+        data = joints.copy()
+        fk_pts = np.zeros(coords.shape)
+        for i, q in enumerate(data):
+            q[2] += offset
+            fk_pts[i] = rob.ForwardKinematics(q)[:3, 3]
+        _, error = nmrRegistrationRigid(fk_pts, polaris_coords)
+        if num == 0 or error < min_:
+            min_ = error
+            min_offset = offset
+
+    return min_offset

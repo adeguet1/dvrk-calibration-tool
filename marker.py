@@ -13,7 +13,7 @@ class Marker:
     
     def callback(self, data):
         if len(data.points) > 1:
-            print(data.points)
+            # print(data.points)
             self.bad_callback = True
         else:
             self.bad_callback = False

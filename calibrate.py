@@ -15,7 +15,7 @@ from mpl_toolkits.mplot3d import Axes3D
 import PyKDL
 import rospy
 import dvrk
-from analyze_data import get_new_offset, get_best_fit
+from analyze_data import get_new_offset, get_best_fit, get_new_offset_polaris
 from marker import Marker
 from cisstNumericalPython import nmrRegistrationRigid
 # from rot_matrix_test import *
@@ -178,36 +178,23 @@ class Calibration:
                 time.sleep(0.5)
         print(rospy.get_caller_id(), '<- calibration complete')
     
-    def record_points_polaris(self, pts, nsamples, verbose=False):
+    def gen_grid(self, corners, nsamples, verbose=False):
         """Moves in a zig-zag pattern in a grid and records the points
         at which the arm reaches the surface"""
-        if not len(pts) == 3:
-            return False
+        if not len(corners) == 3:
+            return
 
-        self.info["points"] = [pt.p for pt in pts]
+        self.info["corners"] = [corner.p for corner in corners]
         self.info["polaris"] = True
-
-        initial = PyKDL.Frame()
-        initial.p = copy(pts[2].p)
-        initial.M = self.ROT_MATRIX
-        initial.p[2] += 0.05
-        self.arm.move(initial)
-
-        final = PyKDL.Frame()
-        final.p = copy(pts[0].p)
-        final.M = self.ROT_MATRIX
-        final.p[2] += 0.05
-
-        self.arm.move(final)
 
         goal = PyKDL.Frame(self.ROT_MATRIX)
 
         if verbose:
-            print("Using points {}, {}, and {}".format(*[tuple(pt.p) for pt in pts]))
+            print("Using corners {}, {}, and {}".format(*[tuple(pt.p) for pt in corners]))
 
         for i in range(nsamples):
-            rightside = pts[1].p + i / (nsamples - 1) * (pts[2].p - pts[1].p)
-            leftside = pts[0].p + i / (nsamples - 1) * (pts[2].p - pts[1].p)
+            rightside = corners[1].p + i / (nsamples - 1) * (corners[2].p - corners[1].p)
+            leftside = corners[0].p + i / (nsamples - 1) * (corners[2].p - corners[1].p)
             print("moving arm to row ", i)
             for j in range(nsamples):
                 print("\tmoving arm to column ", j)
@@ -218,22 +205,22 @@ class Calibration:
                     goal.p = rightside + (j / (nsamples - 1) *
                                           (leftside - rightside))
                 goal.M = self.ROT_MATRIX
-                self.arm.move(goal)
-                time.sleep(0.5)
-                m = list(self.marker.get_current_position())
-                if verbose:
-                    print(m)
-                self.data.append(
-                    m +
-                    list(self.arm.get_current_joint_position()) +
-                    list(self.arm.get_current_position().p)
-                )
-                
-                time.sleep(0.5)
-        print(self.marker.n_bad_callbacks)
-        print(rospy.get_caller_id(), '<- calibration complete')
+                yield goal
     
-    def record_any_points_polaris
+    def record_points_polaris(self, pts, verbose=False):
+        for pt in pts:
+            self.arm.move(pt)
+            time.sleep(0.5)
+            m = list(self.marker.get_current_position())
+            if verbose:
+                print(m)
+            self.data.append(
+                m +
+                list(self.arm.get_current_joint_position()) +
+                list(self.arm.get_current_position().p)
+            )
+        print(rospy.get_caller_id(), '<- calibration complete')
+        print("Number of bad points: {}".format(self.marker.n_bad_callbacks))
 
     def output_to_csv(self, fpath):
         "Outputs contents of self.data to fpath"
@@ -352,7 +339,8 @@ def parse_record(args):
     if args.polaris:
         calibration = Calibration(args.arm, polaris=True)
         # pts = calibration.get_corners()
-        calibration.record_points_polaris(pts, args.samples, verbose=args.verbose)
+        grid = calibration.gen_grid(pts, args.samples, verbose=args.verbose)
+        calibration.record_points_polaris(grid, verbose=args.verbose)
     else:
         calibration = Calibration(args.arm)
         # pts = calibration.get_corners()
@@ -367,7 +355,7 @@ def parse_view(args):
 
 
 def parse_analyze(args):
-    offset = 1000 * get_new_offset(args.input, args.output)
+    offset = 1000 * get_new_offset_polaris(args.input, args.output)
     if args.write:
         if os.path.exists(args.write):
             print("Writing offset...")
