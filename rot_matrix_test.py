@@ -3,7 +3,7 @@ import numpy as np
 import PyKDL
 import dvrk
 
-def rot_matrix(yaw, pitch, roll):
+def rot_matrix(roll, pitch, yaw):
     R_x = np.array([
         [1, 0, 0],
         [0, np.cos(yaw), -np.sin(yaw)],
@@ -62,4 +62,4 @@ if __name__ == "__main__":
     offset_rot = rot_matrix(0, np.pi/4, 0)
     current_rot_arr = kdl2np(current_rot)
     new_rot = offset_rot.dot(current_rot_arr)
-    arm.move(np2kdl(new_rot))
+    # arm.move(np2kdl(new_rot))

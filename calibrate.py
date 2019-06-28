@@ -5,6 +5,7 @@ import sys
 import os.path
 from copy import copy
 import time
+import itertools
 import argparse
 import xml.etree.ElementTree as ET
 import csv
@@ -17,7 +18,7 @@ import dvrk
 from analyze_data import get_new_offset, get_best_fit
 from marker import Marker
 from cisstNumericalPython import nmrRegistrationRigid
-from rot_matrix_test import *
+# from rot_matrix_test import *
 
 
 class Calibration:
@@ -38,6 +39,7 @@ class Calibration:
         print("initializing calibration for", robot_name)
         print("have a flat surface below the robot")
         self.data = []
+        self.info = {}
         # Add checker for directory
 
         self.arm = dvrk.arm(robot_name)
@@ -80,20 +82,22 @@ class Calibration:
         if not len(pts) == 3:
             return False
         
-        # horiz is the line that is horizontal
-        if abs((pts[1].p - pts[0].p)[2]) < abs((pts[2].p - pts[1].p)[2]):
-            p1 = pts[0].p
-        else:
-            p1 = pts[2].p
-        p2 = pts[1].p
-
-        roll = np.arccos(abs((p2 - p1)[0]) / np.sqrt(np.square((p2 - p1)[1])
-                                                     + np.square((p2 - p1)[0])))
-        print(np.rad2deg(roll))
+        self.info["points"] = [pt.p for pt in pts]
+        self.info["polaris"] = False
         
-        offset_rot = rot_matrix(0, 0, 0)
-        new_rot_np = offset_rot.dot(self.ROT_MATRIX_NP)
-        new_rot_kdl = np2kdl(new_rot_np)
+        # horiz is the line that is horizontal
+        # if abs((pts[1].p - pts[0].p)[2]) < abs((pts[2].p - pts[1].p)[2]):
+        #     p1 = pts[0].p
+        # else:
+        #     p1 = pts[2].p
+        # p2 = pts[1].p
+
+        # roll = np.arccos(abs((p2 - p1)[0]) / np.sqrt(np.square((p2 - p1)[1])
+        #                                              + np.square((p2 - p1)[0])))
+        
+        # offset_rot = rot_matrix(0, 0, 0)
+        # new_rot_np = offset_rot.dot(self.ROT_MATRIX_NP)
+        # new_rot_kdl = np2kdl(new_rot_np)
 
         THRESH = 1.5
         initial = PyKDL.Frame()
@@ -109,10 +113,12 @@ class Calibration:
 
         self.arm.move(final)
 
-        goal = PyKDL.Frame(new_rot_kdl)
+        goal = PyKDL.Frame(self.ROT_MATRIX)
+        # goal = PyKDL.Frame(new_rot_kdl)
 
-        if verbose:
-            print("Using points {}, {}, and {}".format(*[tuple(pt.p) for pt in pts]))
+        # if verbose:
+        #     print(np.rad2deg(roll))
+        print("Using points {}, {}, and {}".format(*[tuple(pt.p) for pt in pts]))
 
         for i in range(nsamples):
             rightside = pts[1].p + i / (nsamples - 1) * (pts[2].p - pts[1].p)
@@ -133,8 +139,9 @@ class Calibration:
                 for k in range(20): # in millimeters
                     goal.p[2] -= 0.001
                     self.arm.move(goal)
-                    if abs(self.arm.get_current_wrench_body()[2]) >= THRESH:
-                        print(self.arm.get_current_wrench_body())
+                    force = self.arm.get_current_wrench_body()[2]
+                    force
+                    if abs(force) >= THRESH:
                         goal.p[2] += 0.001
                         break
                     elif k == 19:
@@ -177,6 +184,9 @@ class Calibration:
         if not len(pts) == 3:
             return False
 
+        self.info["points"] = [pt.p for pt in pts]
+        self.info["polaris"] = True
+
         initial = PyKDL.Frame()
         initial.p = copy(pts[2].p)
         initial.M = self.ROT_MATRIX
@@ -209,6 +219,7 @@ class Calibration:
                                           (leftside - rightside))
                 goal.M = self.ROT_MATRIX
                 self.arm.move(goal)
+                time.sleep(0.5)
                 m = list(self.marker.get_current_position())
                 if verbose:
                     print(m)
@@ -219,21 +230,20 @@ class Calibration:
                 )
                 
                 time.sleep(0.5)
+        print(self.marker.n_bad_callbacks)
         print(rospy.get_caller_id(), '<- calibration complete')
-
-    def go_to_points(self, fpath):
-        """Go to the previously recorded points.
-        @fpath: file path to csv for recorded points"""
-        with open(fpath, 'r') as csvfile:
-            reader = csv.reader(csvfile)
-            for row in reader:
-                coord = [float(x) for x in row[:3]]
-                self.arm.move(PyKDL.Frame(self.ROT_MATRIX,
-                                          PyKDL.Vector(*coord)))
+    
+    def record_any_points_polaris
 
     def output_to_csv(self, fpath):
         "Outputs contents of self.data to fpath"
         with open(choose_filename(fpath), 'w') as csvfile:
+            info_text = " ".join([
+                "{}: {}".format(key, value)
+                for (key, value) in self.info.iteritems()
+            ])
+                
+            csvfile.write("# INFO: {}\n".format(info_text))
             writer = csv.writer(
                 csvfile, delimiter=',',
                 quotechar='"', quoting=csv.QUOTE_MINIMAL
@@ -266,6 +276,7 @@ def plot_data(data_file):
     joints = np.array([])
 
     with open(data_file, 'r') as csvfile:
+        csvfile.readline()
         reader = csv.reader(csvfile)
         for row in reader:
             if len(row) == 12:
@@ -294,10 +305,10 @@ def plot_data(data_file):
 
 
     if polaris:
-        transf, error = nmrRegistrationRigid(polaris_coords, coords)
+        transf, error = nmrRegistrationRigid(coords, polaris_coords)
         rot_matrix = transf.Rotation()
         translation = transf.Translation()
-        new_coords = (coords - translation).dot(rot_matrix)
+        polaris_coords = (polaris_coords - translation).dot(rot_matrix)
         print("Rigid Registration Error: {}".format(error))
 
 
@@ -324,9 +335,7 @@ def plot_data(data_file):
     if polaris:
         ax.scatter(polaris_coords[:,0], polaris_coords[:,1], polaris_coords[:,2],
             c='b', s=20)
-        ax.scatter(new_coords[:,0], new_coords[:,1], new_coords[:,2], c='r', s=20)
-    else:
-        ax.scatter(coords[:,0], coords[:,1], coords[:,2], c='r', s=20)
+    ax.scatter(coords[:,0], coords[:,1], coords[:,2], c='r', s=20)
     plt.xlabel('X')
     plt.ylabel('Y')
     ax.set_zlabel('Z')
@@ -334,19 +343,19 @@ def plot_data(data_file):
 
 
 def parse_record(args):
-    # pts = [
-    #     PyKDL.Vector(0.02518542567045426, 0.08894104008779766, -0.18251737895625197),
-    #     PyKDL.Vector(0.04833155338422577, -0.08023285860239543, -0.19002207233045662),
-    #     PyKDL.Vector(-0.060848553335173985, -0.09092803145921796, -0.1876384813402179)
-    # ]
-    # pts = [PyKDL.Frame(Calibration.ROT_MATRIX, pt) for pt in pts]
+    pts = [
+        PyKDL.Vector(0.04969137179347108, 0.12200283317260341, -0.19149147092692725),
+        PyKDL.Vector(0.09269885200354012, -0.06284151552138104, -0.1977706048728867),
+        PyKDL.Vector(-0.06045055029036737, -0.09093816039641696, -0.19326454699986603)
+    ]
+    pts = [PyKDL.Frame(Calibration.ROT_MATRIX, pt) for pt in pts]
     if args.polaris:
         calibration = Calibration(args.arm, polaris=True)
-        pts = calibration.get_corners()
+        # pts = calibration.get_corners()
         calibration.record_points_polaris(pts, args.samples, verbose=args.verbose)
     else:
         calibration = Calibration(args.arm)
-        pts = calibration.get_corners()
+        # pts = calibration.get_corners()
 
         calibration.record_points(pts, args.samples, verbose=args.verbose)
 

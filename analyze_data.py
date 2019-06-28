@@ -2,6 +2,7 @@ import csv
 import numpy as np
 import scipy.linalg
 import cisstRobotPython as crp
+import itertools
 
 ROB_FILE = ("/home/cnookal1/catkin_ws/src/cisst-saw"
             "/sawIntuitiveResearchKit/share/deprecated/dvpsm.rob")
@@ -47,6 +48,7 @@ def get_new_offset(data_file=None, error_fk_outfile=None):
     coords = np.array([])
 
     with open(data_file) as infile:
+        infile.readline()
         reader = csv.reader(infile)
         for row in reader:
             joints = np.append(joints,

@@ -9,6 +9,7 @@ class Marker:
         self.subscriber = rospy.Subscriber("/ndi/fiducials", PointCloud, self.callback)
         self._coord = np.zeros((3))
         self.bad_callback = False
+        self.n_bad_callbacks = 0
     
     def callback(self, data):
         if len(data.points) > 1:
@@ -24,4 +25,5 @@ class Marker:
     def get_current_position(self):
         if self.bad_callback:
             print("more than one point was detected. Moving on")
+            self.n_bad_callbacks += 1
         return self._coord
