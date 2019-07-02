@@ -12,7 +12,7 @@ class Marker:
         self.n_bad_callbacks = 0
     
     def callback(self, data):
-        if len(data.points) > 1:
+        if len(data.points) != 1:
             # print(data.points)
             self.bad_callback = True
         else:
@@ -24,6 +24,7 @@ class Marker:
     
     def get_current_position(self):
         if self.bad_callback:
-            print("more than one point was detected. Moving on")
+            # Use roslog
+            # print("more than one point was detected. Moving on")
             self.n_bad_callbacks += 1
         return self._coord

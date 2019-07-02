@@ -33,8 +33,13 @@ def np2kdl(arr):
 
 
 def kdl2np(r):
-    # Stupid workaround
-    return np.array(eval(str(r).replace(';', ','))).reshape(3, 3)
+    return np.array([
+        [
+            r[row, col] for col in range(3)
+        ]
+        for row in range(3)
+    ])
+
 
 
 if __name__ == "__main__":

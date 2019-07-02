@@ -18,7 +18,7 @@ import dvrk
 from analyze_data import get_new_offset, get_best_fit, get_new_offset_polaris
 from marker import Marker
 from cisstNumericalPython import nmrRegistrationRigid
-# from rot_matrix_test import *
+from rot_matrix_test import kdl2np
 
 
 class Calibration:
@@ -55,12 +55,10 @@ class Calibration:
         # make sure the camera is past the cannula and tool vertical
         print("starting home")
         self.arm.home()
-        goal = np.copy(self.arm.get_current_joint_position())
+        goal = np.zeros(6)
         if ((self.arm.name() == 'PSM1') or (self.arm.name() == 'PSM2') or
             (self.arm.name() == 'PSM3') or (self.arm.name() == 'ECM')):
             # set in position joint mode
-            goal[0] = 0.0
-            goal[1] = 0.0
             goal[2] = 0.12
             self.arm.move_joint(goal)
         self.arm.move(self.ROT_MATRIX)
@@ -177,7 +175,59 @@ class Calibration:
                 
                 time.sleep(0.5)
         print(rospy.get_caller_id(), '<- calibration complete')
-    
+
+    def gen_wide_joint_positions(self, nsamples=6):
+        q = np.zeros((6))
+        for sample1 in range(nsamples):
+            q[0] = np.deg2rad(-40 + (sample1) / (nsamples - 1) * 105)
+            for sample2 in range(nsamples):
+                if sample1 % 2 == 0:
+                    q[1] = np.deg2rad(-40 + (sample2) / (nsamples - 1) * 60)
+                else:
+                    q[1] = np.deg2rad(20 - (sample2) / (nsamples - 1) * 60)
+                for sample3 in range(nsamples):
+                    if sample2 % 2 == 0:
+                        q[2] = .070 + (sample3) / (nsamples - 1) * .150
+                    else:
+                        q[2] = .220 - (sample3) / (nsamples - 1) * .150
+                    yield q
+
+    def record_joints_polaris(self, joint_set, npoints=216, verbose=False):
+        # Get number of columns of terminal and subtract it by 2 to get
+        # the toolbar width
+        toolbar_width = int(os.popen('stty size', 'r').read().split()[1]) - 2
+        sys.stdout.write("[%s]\r" % (" " * toolbar_width))
+        sys.stdout.flush()
+        start_time = time.time()
+        bad_rots = 0
+        
+        for i, q in enumerate(joint_set):
+            self.arm.move_joint(q)
+            self.arm.move(self.ROT_MATRIX)
+            time.sleep(0.5)
+            m = self.marker.get_current_position()
+            rot_matrix = self.arm.get_current_position().M
+            rot_diff = self.ROT_MATRIX * rot_matrix.Inverse()
+            if np.rad2deg(np.abs(rot_diff.GetRPY()).max()) > 2:
+                print(rot_matrix)
+                bad_rots += 1
+            else:
+                self.data.append(
+                    list(self.arm.get_current_joint_position()) +
+                    list(self.arm.get_current_position().p) +
+                    list(m)
+                )
+            block = int(toolbar_width * i/(npoints - 1))
+            arrows = '-' * block if block < 1 else (('-' * block)[:-1] + '>')
+            sys.stdout.write("\r[{}{}]".format(arrows, ' ' * (toolbar_width - block)))
+            sys.stdout.flush()
+        
+        end_time = time.time()
+        duration = end_time - start_time
+        print("Finished in {}m {}s".format(int(duration) // 60, int(duration % 60)))
+        print(rospy.get_caller_id(), '<- calibration complete')
+        print("Number of bad points: {}".format(self.marker.n_bad_callbacks + bad_rots))
+
     def gen_grid(self, corners, nsamples, verbose=False):
         """Moves in a zig-zag pattern in a grid and records the points
         at which the arm reaches the surface"""
@@ -195,9 +245,11 @@ class Calibration:
         for i in range(nsamples):
             rightside = corners[1].p + i / (nsamples - 1) * (corners[2].p - corners[1].p)
             leftside = corners[0].p + i / (nsamples - 1) * (corners[2].p - corners[1].p)
-            print("moving arm to row ", i)
+            if verbose:
+                print("moving arm to row ", i)
             for j in range(nsamples):
-                print("\tmoving arm to column ", j)
+                if verbose:
+                    print("\tmoving arm to column ", j)
                 if i % 2 == 0:
                     goal.p = leftside + (j / (nsamples - 1) *
                                          (rightside - leftside))
@@ -206,26 +258,35 @@ class Calibration:
                                           (leftside - rightside))
                 goal.M = self.ROT_MATRIX
                 yield goal
-    
-    def record_points_polaris(self, pts, verbose=False):
-        for pt in pts:
+
+    def record_points_polaris(self, pts, npoints=100, verbose=False):
+        # Get number of columns of terminal and subtract it by 2 to get
+        # the toolbar width
+        toolbar_width = int(os.popen('stty size', 'r').read().split()[1]) - 2
+        sys.stdout.write("[%s]\r" % (" " * toolbar_width))
+        sys.stdout.flush()
+
+        for i, pt in enumerate(pts):
             self.arm.move(pt)
             time.sleep(0.5)
             m = list(self.marker.get_current_position())
-            if verbose:
-                print(m)
             self.data.append(
-                m +
                 list(self.arm.get_current_joint_position()) +
-                list(self.arm.get_current_position().p)
+                list(self.arm.get_current_position().p) +
+                m
             )
+            block = int(toolbar_width * i/(npoints - 1))
+            arrows = '-' * block if block < 1 else (('-' * block)[:-1] + '>')
+            sys.stdout.write("\r[{}{}]".format(arrows, ' ' * (toolbar_width - block)))
+            sys.stdout.flush()
+        
         print(rospy.get_caller_id(), '<- calibration complete')
         print("Number of bad points: {}".format(self.marker.n_bad_callbacks))
 
     def output_to_csv(self, fpath):
         "Outputs contents of self.data to fpath"
         with open(choose_filename(fpath), 'w') as csvfile:
-            info_text = " ".join([
+            info_text = " ,".join([
                 "{}: {}".format(key, value)
                 for (key, value) in self.info.iteritems()
             ])
@@ -272,11 +333,11 @@ def plot_data(data_file):
                 polaris = False
             joints = np.append(
                 joints,
-                np.array([float(x) for x in row[3:9]])
+                np.array([float(x) for x in row[0:6]])
             )
             coords = np.append(
                 coords,
-                np.array([float(x) for x in row[:3]])
+                np.array([float(x) for x in row[6:9]])
             )
             if polaris:
                 polaris_coords = np.append(
@@ -298,30 +359,31 @@ def plot_data(data_file):
         polaris_coords = (polaris_coords - translation).dot(rot_matrix)
         print("Rigid Registration Error: {}".format(error))
 
-
-    X, Y = np.meshgrid(
-        np.arange(
-            min(coords[:,0])-0.05,
-            max(coords[:,0])+0.05,
-            0.05
-        ),
-        np.arange(
-            min(coords[:,1])-0.05,
-            max(coords[:,1])+0.05,
-            0.05
+    if not polaris:
+        X, Y = np.meshgrid(
+            np.arange(
+                min(coords[:,0])-0.05,
+                max(coords[:,0])+0.05,
+                0.05
+            ),
+            np.arange(
+                min(coords[:,1])-0.05,
+                max(coords[:,1])+0.05,
+                0.05
+            )
         )
-    )
 
-    A, B, C = get_best_fit(coords)
-    Z = A*X + B*Y + C
+        A, B, C = get_best_fit(coords)
+        Z = A*X + B*Y + C
 
     # plot points and fitted surface
     fig = plt.figure()
     ax = fig.gca(projection='3d')
-    ax.plot_surface(X, Y, Z, rstride=1, cstride=1, alpha=0.2)
     if polaris:
         ax.scatter(polaris_coords[:,0], polaris_coords[:,1], polaris_coords[:,2],
             c='b', s=20)
+    else:
+        ax.plot_surface(X, Y, Z, rstride=1, cstride=1, alpha=0.2)
     ax.scatter(coords[:,0], coords[:,1], coords[:,2], c='r', s=20)
     plt.xlabel('X')
     plt.ylabel('Y')
@@ -339,8 +401,12 @@ def parse_record(args):
     if args.polaris:
         calibration = Calibration(args.arm, polaris=True)
         # pts = calibration.get_corners()
-        grid = calibration.gen_grid(pts, args.samples, verbose=args.verbose)
-        calibration.record_points_polaris(grid, verbose=args.verbose)
+        # grid = calibration.gen_grid(pts, args.samples, verbose=args.verbose)
+        # calibration.record_points_polaris(grid, verbose=args.verbose)
+        joint_set = calibration.gen_wide_joint_positions()
+        print("Starting calibration")
+        time.sleep(0.5)
+        calibration.record_joints_polaris(joint_set, npoints=216, verbose=args.verbose)
     else:
         calibration = Calibration(args.arm)
         # pts = calibration.get_corners()
@@ -355,17 +421,23 @@ def parse_view(args):
 
 
 def parse_analyze(args):
-    offset = 1000 * get_new_offset_polaris(args.input, args.output)
+    if args.polaris:
+        offset = 1000 * get_new_offset_polaris(args.input, args.output)
+    else:
+        offset = 1000 * get_new_offset(args.input, args.output)
     if args.write:
         if os.path.exists(args.write):
             print("Writing offset...")
             tree = ET.parse(args.write)
             root = tree.getroot()
-            current_offset = float(root[0][2][2][1].attrib["Offset"])
-            # Write to <Config><Robot><Actuator ActuatorID=2>
-            #              <AnalogIn><VoltstoPosSI> Offset
-            root[0][2][2][1].attrib["Offset"] = str(offset + 
-                current_offset)
+            xpath_search_results = root.findall("./Robot/Actuator[@ActuatorID='2']/AnalogIn/VoltsToPosSI")
+            if len(xpath_search_results) == 1:
+                VoltsToPosSI = xpath_search_results[0]
+            else:
+                print("Error: There must be exactly one Actuator with ActuatorID=2")
+                sys.exit(1)
+            current_offset = float(VoltsToPosSI.get("Offset"))
+            VoltsToPosSI.set("Offset", str(offset + current_offset))
             tree.write(args.write)
             print(("Wrote offset: {}mm (Current offset) + {}mm (Additional offset) "
                    "= {}mm (Written offset)").format(current_offset, offset,
@@ -437,6 +509,12 @@ if __name__ == "__main__":
         help="output for the graph of offset versus error "
         "(filename automatically increments)",
         default="data/error_fk.csv"
+    )
+    parser_analyze.add_argument(
+        "-p", "--polaris",
+        help="use polaris",
+        default=False,
+        action="store_true"
     )
     parser_analyze.add_argument(
         "-n", "--no-output",

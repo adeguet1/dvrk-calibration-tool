@@ -51,9 +51,9 @@ def get_new_offset(data_file=None, error_fk_outfile=None):
         reader = csv.reader(infile)
         for row in reader:
             joints = np.append(joints,
-                               np.array([float(x) for x in row[3:9]]))
+                               np.array([float(x) for x in row[:6]]))
             coords = np.append(coords,
-                               np.array([float(x) for x in row[:3]]))
+                               np.array([float(x) for x in row[6:]]))
 
     coords = coords.reshape(-1, 3)
     joints = joints.reshape(-1, 6)
@@ -107,12 +107,12 @@ def get_new_offset_polaris(data_file=None, error_fk_outfile=None):
         reader = csv.reader(infile)
         for row in reader:
             joints = np.append(joints,
-                               np.array([float(x) for x in row[3:9]]))
+                               np.array([float(x) for x in row[:6]]))
             coords = np.append(coords,
-                               np.array([float(x) for x in row[:3]]))
+                               np.array([float(x) for x in row[6:9]]))
             polaris_coords = np.append(
                 polaris_coords,
-                np.array([float(x) for x in row[9:12]])
+                np.array([float(x) for x in row[9:]])
             )
 
     coords = coords.reshape(-1, 3)
@@ -122,7 +122,7 @@ def get_new_offset_polaris(data_file=None, error_fk_outfile=None):
     # Add checker for outfile
     with open(error_fk_outfile, 'w') as outfile:
         fk_plot = csv.writer(outfile)
-        for num, offset in enumerate(np.arange(-.9, .09, .001)):
+        for num, offset in enumerate(np.arange(-.02, .02, .001)):
             data = joints.copy()
             fk_pts = np.array([])
             for q in data:
@@ -134,9 +134,9 @@ def get_new_offset_polaris(data_file=None, error_fk_outfile=None):
                 min_ = error
                 min_offset = offset
             fk_plot.writerow([offset, error])
-
-    for num, offset in enumerate(np.arange(min_offset - 0.02,
-                                           min_offset + 0.02,
+    
+    for num, offset in enumerate(np.arange(min_offset - 0.002,
+                                           min_offset + 0.002,
                                            0.0001)):
         data = joints.copy()
         fk_pts = np.zeros(coords.shape)
