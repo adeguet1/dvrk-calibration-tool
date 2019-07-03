@@ -152,20 +152,6 @@ def get_new_offset_polaris(data_file=None, error_fk_outfile=None):
             min_error = error
             min_offset_tenth_mm = offset
 
-    # unit: micrometer
-    for num, offset in enumerate(range(min_offset_tenth_mm * 10 - 20,
-                                       min_offset_tenth_mm * 10 + 20,
-                                       1)):
-        data = joints.copy()
-        fk_pts = np.zeros(coords.shape)
-        for i, q in enumerate(data):
-            q[2] += offset / 100000
-            fk_pts[i] = rob.ForwardKinematics(q)[:3, 3]
-        _, error = nmrRegistrationRigid(fk_pts, polaris_coords)
-        if num == 0 or error < min_error:
-            min_error = error
-            min_offset_micrometer = offset
-
-    min_offset = min_offset_micrometer / 100000
+    min_offset = min_offset_tenth_mm / 10000
 
     return min_offset
