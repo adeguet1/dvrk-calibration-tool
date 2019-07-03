@@ -202,6 +202,7 @@ class Calibration:
         bad_rots = 0
         
         for i, q in enumerate(joint_set):
+            q[3:6] = self.arm.get_desired_joint_position()[3:6]
             self.arm.move_joint(q)
             self.arm.move(self.ROT_MATRIX)
             time.sleep(0.5)
@@ -209,7 +210,7 @@ class Calibration:
             rot_matrix = self.arm.get_current_position().M
             rot_diff = self.ROT_MATRIX * rot_matrix.Inverse()
             if np.rad2deg(np.abs(rot_diff.GetRPY()).max()) > 2:
-                print(rot_matrix)
+                rospy.logwarn("Disregarding bad rotation:\n{}".format(rot_matrix))
                 bad_rots += 1
             else:
                 self.data.append(
@@ -450,7 +451,7 @@ def parse_analyze(args):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(description="Calibrate the dVRK")
     parser.add_argument(
         "-v", "--verbose",
         help="make output verbose", action="store_true"
