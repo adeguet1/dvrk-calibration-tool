@@ -1,3 +1,4 @@
+from __future__ import division
 import csv
 import numpy as np
 import scipy.linalg
@@ -41,13 +42,14 @@ def get_new_offset(data_file=None, error_fk_outfile=None):
     rob = crp.robManipulator()
     rob.LoadRobot(ROB_FILE)
 
-    min = 0
+    min_error = 0
     min_offset = 0
 
     joints = np.array([])
     coords = np.array([])
 
     with open(data_file) as infile:
+        infile.readline() # Disregard comment line
         reader = csv.reader(infile)
         for row in reader:
             joints = np.append(joints,
@@ -69,8 +71,8 @@ def get_new_offset(data_file=None, error_fk_outfile=None):
                 fk_pts = np.append(fk_pts, rob.ForwardKinematics(q)[:3, 3])
             fk_pts = fk_pts.reshape((-1, 3))
             error = get_best_fit_error(fk_pts)
-            if num == 0 or error < min:
-                min = error
+            if num == 0 or error < min_error:
+                min_error = error
                 min_offset = offset
             fk_plot.writerow([offset, error])
 
@@ -83,8 +85,8 @@ def get_new_offset(data_file=None, error_fk_outfile=None):
             q[2] += offset
             fk_pts[i] = rob.ForwardKinematics(q)[:3, 3]
         error = get_best_fit_error(fk_pts)
-        if num == 0 or error < min:
-            min = error
+        if num == 0 or error < min_error:
+            min_error = error
             min_offset = offset
 
     return min_offset
@@ -95,7 +97,7 @@ def get_new_offset_polaris(data_file=None, error_fk_outfile=None):
     rob = crp.robManipulator()
     rob.LoadRobot(ROB_FILE)
 
-    min_ = 0
+    min_error = 0
     min_offset = 0
 
     joints = np.array([])
@@ -120,32 +122,50 @@ def get_new_offset_polaris(data_file=None, error_fk_outfile=None):
     polaris_coords = polaris_coords.reshape(-1, 3)
 
     # Add checker for outfile
+    # unit: millimeter
     with open(error_fk_outfile, 'w') as outfile:
         fk_plot = csv.writer(outfile)
-        for num, offset in enumerate(np.arange(-.02, .02, .001)):
+        for num, offset in enumerate(range(-20, 20, 1)):
             data = joints.copy()
             fk_pts = np.array([])
             for q in data:
-                q[2] += offset
+                q[2] += offset / 1000
                 fk_pts = np.append(fk_pts, rob.ForwardKinematics(q)[:3, 3])
             fk_pts = fk_pts.reshape((-1, 3))
             _, error = nmrRegistrationRigid(fk_pts, polaris_coords)
-            if num == 0 or error < min_:
-                min_ = error
-                min_offset = offset
-            fk_plot.writerow([offset, error])
+            if num == 0 or error < min_error:
+                min_error = error
+                min_offset_mm = offset
+            fk_plot.writerow([offset / 1000, error])
     
-    for num, offset in enumerate(np.arange(min_offset - 0.002,
-                                           min_offset + 0.002,
-                                           0.0001)):
+    # unit: one tenth of a millimeter
+    for num, offset in enumerate(range(min_offset_mm * 10 - 20,
+                                       min_offset_mm * 10 + 20,
+                                       1)):
         data = joints.copy()
         fk_pts = np.zeros(coords.shape)
         for i, q in enumerate(data):
-            q[2] += offset
+            q[2] += offset / 10000
             fk_pts[i] = rob.ForwardKinematics(q)[:3, 3]
         _, error = nmrRegistrationRigid(fk_pts, polaris_coords)
-        if num == 0 or error < min_:
-            min_ = error
-            min_offset = offset
+        if num == 0 or error < min_error:
+            min_error = error
+            min_offset_tenth_mm = offset
+
+    # unit: micrometer
+    for num, offset in enumerate(range(min_offset_tenth_mm * 10 - 20,
+                                       min_offset_tenth_mm * 10 + 20,
+                                       1)):
+        data = joints.copy()
+        fk_pts = np.zeros(coords.shape)
+        for i, q in enumerate(data):
+            q[2] += offset / 100000
+            fk_pts[i] = rob.ForwardKinematics(q)[:3, 3]
+        _, error = nmrRegistrationRigid(fk_pts, polaris_coords)
+        if num == 0 or error < min_error:
+            min_error = error
+            min_offset_micrometer = offset
+
+    min_offset = min_offset_micrometer / 100000
 
     return min_offset
