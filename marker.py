@@ -13,7 +13,6 @@ class Marker:
     
     def callback(self, data):
         if len(data.points) > 1:
-            # print(data.points)
             self.bad_callback = True
             rospy.logwarn("Too many points received")
         elif len(data.points) == 0:
@@ -28,8 +27,6 @@ class Marker:
     
     def get_current_position(self):
         if self.bad_callback:
-            # Use roslog
-            # print("more than one point was detected. Moving on")
             rospy.logerr("There was a bad callback (there must be only one point received)")
             self.n_bad_callbacks += 1
         else:

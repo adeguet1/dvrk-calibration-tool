@@ -5,7 +5,6 @@ import sys
 import os.path
 from copy import copy
 import time
-import itertools
 import argparse
 import xml.etree.ElementTree as ET
 import csv
@@ -18,8 +17,6 @@ import dvrk
 from analyze_data import get_new_offset, get_best_fit, get_new_offset_polaris
 from marker import Marker
 from cisstNumericalPython import nmrRegistrationRigid
-from rot_matrix_test import kdl2np
-
 
 class Calibration:
 
@@ -29,11 +26,7 @@ class Calibration:
         0,    0,   -1
     )
 
-    ROT_MATRIX_NP = np.array([
-        [1,    0,    0],
-        [0,   -1,    0],
-        [0,    0,   -1]
-    ])
+    THRESH = 1.5
 
     def __init__(self, robot_name, polaris=False):
         print("initializing calibration for", robot_name)
@@ -42,7 +35,7 @@ class Calibration:
         self.info = {}
         # Add checker for directory
 
-        self.arm = dvrk.arm(robot_name)
+        self.arm = dvrk.psm(robot_name)
         self.home()
         if polaris:
             self.marker = Marker()
@@ -55,6 +48,7 @@ class Calibration:
         # make sure the camera is past the cannula and tool vertical
         print("starting home")
         self.arm.home()
+        self.arm.close_jaw()
         goal = np.zeros(6)
         if ((self.arm.name() == 'PSM1') or (self.arm.name() == 'PSM2') or
             (self.arm.name() == 'PSM3') or (self.arm.name() == 'ECM')):
@@ -66,7 +60,7 @@ class Calibration:
     def get_corners(self):
         "Gets input from user to get three corners of the plane"
         pts = []
-        raw_input("Hello. Pick the first corner, then press enter. ")
+        raw_input("Pick the first corner, then press enter. ")
         pts.append(self.arm.get_current_position())
         raw_input("Pick the second corner, then press enter. ")
         pts.append(self.arm.get_current_position())
@@ -74,48 +68,111 @@ class Calibration:
         pts.append(self.arm.get_current_position())
         return pts
 
+    def palpate(self):
+        # outfile = open(choose_filename("/home/cnookal1/catkin_ws/src/dvrk-calibration-tool/data/palpation.csv"), 'w')
+        # writer = csv.writer(outfile)
+        time.sleep(2)
+        goal = self.arm.get_desired_position()
+        # move down until forces act on the motor
+        pos_v_force = []
+        INCREMENT = 0.0001
+        # Calculate number of steps required to move 2 centimeters with INCREMENT
+        STEPS = int(0.02/INCREMENT)
+        for k in range(STEPS): # in tenths of millimeters
+            goal.p[2] -= INCREMENT
+            self.arm.move(goal)
+            time.sleep(0.5)
+            force = self.arm.get_current_wrench_body()[2]
+            # writer.writerow([self.arm.get_current_position().p[2], force])
+            pos_v_force.append([self.arm.get_current_position().p[2], force])
+            if abs(force) >= self.THRESH + .5:
+                goal.p[2] += 0.05
+                break
+            elif k == STEPS - 1:
+                return False
+                # print("Error: Did not reach surface at row {}, "
+                #       "column {}".format(i, j))
+                # sys.exit(1)
+
+        data_moving = []
+        data_contact = []
+        pos_v_force = np.array(sorted(pos_v_force, key=lambda t:t[0]))
+
+        moving = False
+        for i, pt in enumerate(pos_v_force[1:]):
+            # pos_v_force[i] is pos_v_force[1:][i-1], not the same as pt
+            deriv = derivative(pt, pos_v_force[i])
+            if deriv < -300:
+                if moving:
+                    break
+                else:
+                    data_contact.append(pos_v_force[i])
+            else:
+                moving = True
+                data_moving.append(pos_v_force[i])
+
+
+        data_moving = np.array(data_moving)
+        data_contact = np.array(data_contact)
+
+        eqn = np.polyfit(data_contact[:, 0], data_contact[:, 1], 1)
+        k = sum(data_moving[:,1])/len(data_moving)
+        new_z = (eqn[1] - k)/(-eqn[0])
+
+        print("Using {} instead of {}".format(new_z, goal.p[2] - 0.05))
+        x = np.sort(np.append(data_moving[:,0], data_contact[:,0]))
+        plt.plot(x, eqn[0] * x + eqn[1], '-')
+        # Plot horizontal line
+        plt.axhline(y=k, color='r', linestyle='-')
+        plt.scatter(pos_v_force[:,0], pos_v_force[:,1], s=10, color='green')
+        # plt.plot(new_z, k, 'go')
+        plt.scatter(data_moving[:,0], data_moving[:,1], s=10, color='red')
+        plt.scatter(data_contact[:,0], data_contact[:,1], s=10, color='blue')
+        plt.show()
+
+        return True
+
+        # for k in range(20): # In tenths of a millimeter
+        #     goal.p[2] -= 0.0001
+        #     self.arm.move(goal)
+        #     if abs(self.arm.get_current_wrench_body()[2]) >= THRESH:
+        #         dist = (prev_goal.p -
+        #             self.arm.get_current_position().p)[2]
+        #         self.data.append(
+        #             list(self.arm.get_current_position().p) +
+        #             list(self.arm.get_current_joint_position())
+        #         )
+        #         if verbose:
+        #             print("Distance: %fmm" % (dist * 1000))
+        #             print(prev_goal.p)
+        #         goal.p[2] = prev_goal.p[2]
+        #         break
+        #     elif k == 19:
+        #         print("Error: Did not reach surface when rechecking "
+        #               "at row {}, column {}".format(i, j))
+        #         sys.exit(1)
+
+
     def record_points(self, pts, nsamples, verbose=False):
         """Moves in a zig-zag pattern in a grid and records the points
         at which the arm reaches the surface"""
         if not len(pts) == 3:
             return False
-        
+
         self.info["points"] = [pt.p for pt in pts]
         self.info["polaris"] = False
-        
-        # horiz is the line that is horizontal
-        # if abs((pts[1].p - pts[0].p)[2]) < abs((pts[2].p - pts[1].p)[2]):
-        #     p1 = pts[0].p
-        # else:
-        #     p1 = pts[2].p
-        # p2 = pts[1].p
 
-        # roll = np.arccos(abs((p2 - p1)[0]) / np.sqrt(np.square((p2 - p1)[1])
-        #                                              + np.square((p2 - p1)[0])))
-        
-        # offset_rot = rot_matrix(0, 0, 0)
-        # new_rot_np = offset_rot.dot(self.ROT_MATRIX_NP)
-        # new_rot_kdl = np2kdl(new_rot_np)
-
-        THRESH = 1.5
-        initial = PyKDL.Frame()
-        initial.p = copy(pts[2].p)
-        initial.M = self.ROT_MATRIX
-        initial.p[2] += 0.05
-        self.arm.move(initial)
 
         final = PyKDL.Frame()
         final.p = copy(pts[0].p)
         final.M = self.ROT_MATRIX
-        final.p[2] += 0.05
+        final.p[2] += 0.15
 
+        self.arm.move(final)
+        final.p[2] -= 0.1
         self.arm.move(final)
 
         goal = PyKDL.Frame(self.ROT_MATRIX)
-        # goal = PyKDL.Frame(new_rot_kdl)
-
-        # if verbose:
-        #     print(np.rad2deg(roll))
         print("Using points {}, {}, and {}".format(*[tuple(pt.p) for pt in pts]))
 
         for i in range(nsamples):
@@ -124,56 +181,22 @@ class Calibration:
             print("moving arm to row ", i)
             for j in range(nsamples):
                 print("\tmoving arm to column ", j)
+                goal = PyKDL.Frame(self.ROT_MATRIX)
                 if i % 2 == 0:
                     goal.p = leftside + (j / (nsamples - 1) *
                                          (rightside - leftside))
                 else:
                     goal.p = rightside + (j / (nsamples - 1) *
                                           (leftside - rightside))
-                prev_goal = copy(goal)
                 goal.p[2] += 0.01
                 self.arm.move(goal)
 
-                for k in range(20): # in millimeters
-                    goal.p[2] -= 0.001
-                    self.arm.move(goal)
-                    force = self.arm.get_current_wrench_body()[2]
-                    force
-                    if abs(force) >= THRESH:
-                        goal.p[2] += 0.001
-                        break
-                    elif k == 19:
-                        print("Error: Did not reach surface at row {}, "
-                              "column {}".format(i, j))
-                        sys.exit(1)
+                if not self.palpate():
+                    rospy.logerr("Didn't reach surface. Closing program")
+                    sys.exit(1)
 
-                for k in range(20): # In tenths of a millimeter
-                    goal.p[2] -= 0.0001
-                    self.arm.move(goal)
-                    if abs(self.arm.get_current_wrench_body()[2]) >= THRESH:
-                        dist = (prev_goal.p -
-                            self.arm.get_current_position().p)[2]
-                        self.data.append(
-                            list(self.arm.get_current_position().p) +
-                            list(self.arm.get_current_joint_position())
-                        )
-                        if verbose:
-                            print("Distance: %fmm" % (dist * 1000))
-                            print(prev_goal.p)
-                        goal.p[2] = prev_goal.p[2]
-                        break
-                    elif k == 19:
-                        print("Error: Did not reach surface when rechecking "
-                              "at row {}, column {}".format(i, j))
-                        sys.exit(1)
-                        
-
-                goal.p[2] += 0.01
-                self.arm.move(goal)
-                # move down until forces acts upon the motor
-
-                
                 time.sleep(0.5)
+
         print(rospy.get_caller_id(), '<- calibration complete')
 
     def gen_wide_joint_positions(self, nsamples=6):
@@ -193,6 +216,8 @@ class Calibration:
                     yield q
 
     def record_joints_polaris(self, joint_set, npoints=216, verbose=False):
+        """Record points using polaris by controlling the joints
+        of the dVRK"""
         # Get number of columns of terminal and subtract it by 2 to get
         # the toolbar width
         toolbar_width = int(os.popen('stty size', 'r').read().split()[1]) - 2
@@ -200,29 +225,31 @@ class Calibration:
         sys.stdout.flush()
         start_time = time.time()
         bad_rots = 0
-        
+
         for i, q in enumerate(joint_set):
             q[3:6] = self.arm.get_desired_joint_position()[3:6]
             self.arm.move_joint(q)
             self.arm.move(self.ROT_MATRIX)
             time.sleep(0.5)
-            m = self.marker.get_current_position()
+            marker_pos = self.marker.get_current_position()
             rot_matrix = self.arm.get_current_position().M
             rot_diff = self.ROT_MATRIX * rot_matrix.Inverse()
             if np.rad2deg(np.abs(rot_diff.GetRPY()).max()) > 2:
-                rospy.logwarn("Disregarding bad rotation:\n{}".format(rot_matrix))
+                rospy.logwarn("Disregarding bad orientation:\n{}".format(rot_matrix))
                 bad_rots += 1
+            elif marker_pos is None:
+                rospy.logwarn("Disregarding bad data received from Polaris")
             else:
                 self.data.append(
                     list(self.arm.get_current_joint_position()) +
                     list(self.arm.get_current_position().p) +
-                    list(m)
+                    list(marker_pos)
                 )
             block = int(toolbar_width * i/(npoints - 1))
             arrows = '-' * block if block < 1 else (('-' * block)[:-1] + '>')
             sys.stdout.write("\r[{}{}]".format(arrows, ' ' * (toolbar_width - block)))
             sys.stdout.flush()
-        
+
         end_time = time.time()
         duration = end_time - start_time
         print("Finished in {}m {}s".format(int(duration) // 60, int(duration % 60)))
@@ -280,7 +307,7 @@ class Calibration:
             arrows = '-' * block if block < 1 else (('-' * block)[:-1] + '>')
             sys.stdout.write("\r[{}{}]".format(arrows, ' ' * (toolbar_width - block)))
             sys.stdout.flush()
-        
+
         print(rospy.get_caller_id(), '<- calibration complete')
         print("Number of bad points: {}".format(self.marker.n_bad_callbacks))
 
@@ -291,7 +318,7 @@ class Calibration:
                 "{}: {}".format(key, value)
                 for (key, value) in self.info.iteritems()
             ])
-                
+
             csvfile.write("# INFO: {}\n".format(info_text))
             writer = csv.writer(
                 csvfile, delimiter=',',
@@ -346,7 +373,7 @@ def plot_data(data_file):
                     np.array([float(x) for x in row[9:12]])
                 )
     coords = coords.reshape(-1, 3)
-    
+
     if polaris:
         polaris_coords = polaris_coords.reshape(-1, 3)
 
@@ -396,7 +423,7 @@ def parse_record(args):
     pts = [
         PyKDL.Vector(0.04969137179347108, 0.12200283317260341, -0.19149147092692725),
         PyKDL.Vector(0.09269885200354012, -0.06284151552138104, -0.1977706048728867),
-        PyKDL.Vector(-0.06045055029036737, -0.09093816039641696, -0.19326454699986603)
+        PyKDL.Vector(-0.06045055029036737, -0.11093816039641696, -0.19326454699986603)
     ]
     pts = [PyKDL.Frame(Calibration.ROT_MATRIX, pt) for pt in pts]
     if args.polaris:
@@ -411,10 +438,16 @@ def parse_record(args):
     else:
         calibration = Calibration(args.arm)
         # pts = calibration.get_corners()
+        goal = pts[0]
+        goal.p[2] += 0.100
+        calibration.arm.move(goal)
+        goal.p[2] -= 0.090
+        calibration.arm.move(goal)
+        calibration.palpate()
 
-        calibration.record_points(pts, args.samples, verbose=args.verbose)
+        # calibration.record_points(pts, args.samples, verbose=args.verbose)
 
-    calibration.output_to_csv(args.output)
+    # calibration.output_to_csv(args.output)
 
 
 def parse_view(args):
@@ -448,6 +481,9 @@ def parse_analyze(args):
             sys.exit(1)
     else:
         print("Offset: {}mm".format(offset))
+
+def derivative(p1, p2):
+    return (p2[1] - p1[1]) / (p2[0] - p1[0])
 
 
 if __name__ == "__main__":
