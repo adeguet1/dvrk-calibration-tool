@@ -186,7 +186,8 @@ def parse_record(args):
         calibration.arm.move(goal)
         goal.p[2] -= 0.090
         calibration.arm.move(goal)
-        calibration.palpate(os.path.join(calibration.folder, "single_palpation.csv"))
+        pos_v_force = calibration.palpate(os.path.join(calibration.folder, "single_palpation.csv"))
+        calibration.analyze_palpation(pos_v_force)
 
         # calibration.record_points(pts, args.samples, verbose=args.verbose)
 

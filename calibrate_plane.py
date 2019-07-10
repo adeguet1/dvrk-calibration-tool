@@ -29,7 +29,7 @@ class PlaneCalibration(Calibration):
         pts.append(self.arm.get_current_position())
         return pts
 
-    def palpate(self, output_file, show_graph=True):
+    def palpate(self, output_file):
         """Move down until forces act on the motor in the z direction,
         then record position, joints, and wrench body of the robot"""
 
@@ -48,8 +48,6 @@ class PlaneCalibration(Calibration):
         # Calculate number of steps required to move 4 mm with an increment of 0.1 mm
         STEPS_TENTH_MM = int(0.008/TENTH_MM)
 
-        oldtime = time.time()
-
         goal.p[2] += 0.01
 
         for i in range(STEPS_MM):
@@ -61,18 +59,13 @@ class PlaneCalibration(Calibration):
                 goal.p = self.arm.get_current_position().p
                 break
             elif i == STEPS_MM - 1:
-                return False
-
-        print(time.time() - oldtime)
+                return None
 
         # move arm 2mm up
         goal.p[2] += 0.004
 
         time.sleep(2)
         self.arm.move(goal)
-
-
-        oldtime = time.time()
 
         for i in range(STEPS_TENTH_MM): # in tenths of millimeters
             goal.p[2] -= TENTH_MM
@@ -87,28 +80,35 @@ class PlaneCalibration(Calibration):
                 self.arm.move(goal)
                 break
             elif i == STEPS_TENTH_MM - 1:
-                return False
+                return None
 
+        outfile = open(output_file, 'w')
+        fieldnames = ["z-position", "wrench"]
+        writer = csv.DictWriter(outfile, fieldnames=fieldnames)
+        csv_dict = [
+            {"z-position": z, "wrench": f}
+            for i, (z, f) in enumerate(pos_v_force)
+        ]
+        writer.writerows(csv_dict)
 
-        print(time.time() - oldtime)
+        return pos_v_force
 
+    def analyze_palpation(self, pos_v_force, show_graph=True):
         data_moving = []
         data_contact = []
 
         # Sort pos_v_force based on z-position
-        pos_v_force_unsorted = np.array(pos_v_force)
         pos_v_force = np.array(sorted(pos_v_force, key=lambda t:t[0]))
-        joint_2_effort = np.array(joint_2_effort)
 
         moving = False
         for i, pt in enumerate(pos_v_force[1:]):
             # pos_v_force[i] is pos_v_force[1:][i-1], not the same as pt
             deriv = self.derivative(pt, pos_v_force[i])
             if deriv < -300:
-                if moving:
-                    break
-                else:
+                if not moving:
                     data_contact.append(pos_v_force[i])
+                else:
+                    data_moving.append(pos_v_force[i])
             else:
                 moving = True
                 data_moving.append(pos_v_force[i])
@@ -117,35 +117,39 @@ class PlaneCalibration(Calibration):
         data_moving = np.array(data_moving)
         data_contact = np.array(data_contact)
 
-        eqn = np.polyfit(data_contact[:, 0], data_contact[:, 1], 1)
-        k = sum(data_moving[:,1])/len(data_moving)
-        new_z = (eqn[1] - k)/(-eqn[0])
+        contact_eqn = np.polyfit(data_contact[:, 0], data_contact[:, 1], 1)
+        moving_eqn = np.polyfit(data_moving[:, 0], data_moving[:, 1], 1)
+        old_error = self.get_error(data_moving)
+        new_error = self.get_error(data_moving[:-1])
+        if old_error - new_error > 0.05:
+            new_error = old_error
+            old_error = 1000000
+            while old_error - new_error > 0.05:
+                old_error = new_error
+                data_moving = data_moving[:-1]
+                new_error = self.get_error(data_moving)
 
-        print("Using {} instead of {}".format(new_z, goal.p[2] - 0.05))
+        new_z = (contact_eqn[1] - moving_eqn[1])/(moving_eqn[0] - contact_eqn[0])
 
         if show_graph:
-            x = np.sort(np.append(data_moving[:,0], data_contact[:,0]))
-            plt.plot(x, eqn[0] * x + eqn[1], '-')
-            # Plot horizontal line
-            plt.axhline(y=k, color='r', linestyle='-')
+
+            # Plot best fit lines
+            plt.plot(data_moving[:, 0], moving_eqn[0] * data_moving[:, 0] + moving_eqn[1], '-', color='red')
+            plt.plot(data_contact[:, 0], contact_eqn[0] * data_contact[:, 0] + contact_eqn[1], '-', color='blue')
 
             # First plot all points, then plot the contact points and moving points
             plt.scatter(pos_v_force[:,0], pos_v_force[:,1], s=10, color='green')
             plt.scatter(data_moving[:,0], data_moving[:,1], s=10, color='red')
             plt.scatter(data_contact[:,0], data_contact[:,1], s=10, color='blue')
-            plt.scatter(joint_2_effort[:,0], joint_2_effort[:,1], s=10, color='black')
             plt.show()
 
-        outfile = open(output_file, 'w')
-        fieldnames = ["z-position", "wrench", "joint_2_effort"]
-        writer = csv.DictWriter(outfile, fieldnames=fieldnames)
-        csv_dict = [
-            {"z-position": z, "wrench": f, "joint_2_effort": joint_2_effort[i]}
-            for i, (z, f) in enumerate(pos_v_force_unsorted)
-        ]
-        writer.writerows(csv_dict)
+        return new_z
 
-        return True
+    def get_error(self, arr):
+        eqn = np.polyfit(arr[:, 0], arr[:, 1], 1)
+        import pudb; pudb.set_trace()  # XXX BREAKPOINT
+        errors = np.sqrt(np.sum(((eqn[0] * arr[:, 0] + eqn[1] - arr[:, 1])**2)))
+        return errors
 
     def record_points(self, pts, nsamples, verbose=False):
         """Moves in a zig-zag pattern in a grid and records the points
