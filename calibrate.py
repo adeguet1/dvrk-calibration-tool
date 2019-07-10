@@ -5,6 +5,7 @@ import sys
 import os.path
 from copy import copy
 import time
+from datetime import datetime
 import argparse
 import xml.etree.ElementTree as ET
 import csv
@@ -34,6 +35,10 @@ class Calibration:
         self.data = []
         self.info = {}
         # Add checker for directory
+        strdate = time.strftime("%Y-%m-%d_%H-%M-%S")
+        self.folder = os.path.join("data", "{}_{}".format(robot_name, strdate))
+        os.mkdir(self.folder)
+        print("Created folder at {}".format(os.path.abspath(self.folder)))
 
         self.arm = dvrk.psm(robot_name)
         self.home()
@@ -68,34 +73,69 @@ class Calibration:
         pts.append(self.arm.get_current_position())
         return pts
 
-    def palpate(self):
-        # outfile = open(choose_filename("/home/cnookal1/catkin_ws/src/dvrk-calibration-tool/data/palpation.csv"), 'w')
-        # writer = csv.writer(outfile)
+    def palpate(self, output_file, show_graph=True):
+        """Move down until forces act on the motor in the z direction,
+        then record position, joints, and wrench body of the robot"""
+
         time.sleep(2)
         goal = self.arm.get_desired_position()
-        # move down until forces act on the motor
+
+        # Store z-position and force in pos_v_force
         pos_v_force = []
-        INCREMENT = 0.0001
-        # Calculate number of steps required to move 2 centimeters with INCREMENT
-        STEPS = int(0.02/INCREMENT)
-        for k in range(STEPS): # in tenths of millimeters
-            goal.p[2] -= INCREMENT
+        MM = 0.001
+        TENTH_MM = 0.0001
+
+        # Calculate number of steps required to move 2 cm with an increment of 1 mm
+        STEPS_MM = int(0.02/MM)
+
+        # Calculate number of steps required to move 4 mm with an increment of 0.1 mm
+        STEPS_TENTH_MM = int(0.004/TENTH_MM)
+
+        oldtime = time.time()
+
+        goal.p[2] += 0.01
+
+        for i in range(STEPS_MM):
+            goal.p[2] -= MM
+            self.arm.move(goal)
+            time.sleep(0.1)
+            if self.arm.get_current_wrench_body()[2] > self.THRESH:
+                # Record initial contact
+                goal.p = self.arm.get_current_position().p
+                break
+            elif i == STEPS_MM - 1:
+                return False
+
+        print(time.time() - oldtime)
+
+        import pudb; pudb.set_trace()  # XXX BREAKPOINT
+        # move arm 2mm up
+        goal.p[2] += 0.002
+
+        time.sleep(2)
+
+
+        oldtime = time.time()
+
+        for i in range(STEPS_TENTH_MM): # in tenths of millimeters
+            goal.p[2] -= TENTH_MM
             self.arm.move(goal)
             time.sleep(0.5)
             force = self.arm.get_current_wrench_body()[2]
-            # writer.writerow([self.arm.get_current_position().p[2], force])
-            pos_v_force.append([self.arm.get_current_position().p[2], force])
+            z_pos = self.arm.get_current_position().p[2]
+            pos_v_force.append([z_pos, force])
             if abs(force) >= self.THRESH + .5:
                 goal.p[2] += 0.05
                 break
-            elif k == STEPS - 1:
+            elif i == STEPS_TENTH_MM - 1:
                 return False
-                # print("Error: Did not reach surface at row {}, "
-                #       "column {}".format(i, j))
-                # sys.exit(1)
+
+        print(time.time() - oldtime)
 
         data_moving = []
         data_contact = []
+
+        # Sort pos_v_force based on z-position
         pos_v_force = np.array(sorted(pos_v_force, key=lambda t:t[0]))
 
         moving = False
@@ -120,37 +160,24 @@ class Calibration:
         new_z = (eqn[1] - k)/(-eqn[0])
 
         print("Using {} instead of {}".format(new_z, goal.p[2] - 0.05))
-        x = np.sort(np.append(data_moving[:,0], data_contact[:,0]))
-        plt.plot(x, eqn[0] * x + eqn[1], '-')
-        # Plot horizontal line
-        plt.axhline(y=k, color='r', linestyle='-')
-        plt.scatter(pos_v_force[:,0], pos_v_force[:,1], s=10, color='green')
-        # plt.plot(new_z, k, 'go')
-        plt.scatter(data_moving[:,0], data_moving[:,1], s=10, color='red')
-        plt.scatter(data_contact[:,0], data_contact[:,1], s=10, color='blue')
-        plt.show()
+
+        if show_graph:
+            x = np.sort(np.append(data_moving[:,0], data_contact[:,0]))
+            plt.plot(x, eqn[0] * x + eqn[1], '-')
+            # Plot horizontal line
+            plt.axhline(y=k, color='r', linestyle='-')
+
+            # First plot all points, then plot the contact points and moving points
+            plt.scatter(pos_v_force[:,0], pos_v_force[:,1], s=10, color='green')
+            plt.scatter(data_moving[:,0], data_moving[:,1], s=10, color='red')
+            plt.scatter(data_contact[:,0], data_contact[:,1], s=10, color='blue')
+            plt.show()
+
+        outfile = open(output_file, 'w')
+        writer = csv.writer(outfile)
+        writer.writerows(pos_v_force)
 
         return True
-
-        # for k in range(20): # In tenths of a millimeter
-        #     goal.p[2] -= 0.0001
-        #     self.arm.move(goal)
-        #     if abs(self.arm.get_current_wrench_body()[2]) >= THRESH:
-        #         dist = (prev_goal.p -
-        #             self.arm.get_current_position().p)[2]
-        #         self.data.append(
-        #             list(self.arm.get_current_position().p) +
-        #             list(self.arm.get_current_joint_position())
-        #         )
-        #         if verbose:
-        #             print("Distance: %fmm" % (dist * 1000))
-        #             print(prev_goal.p)
-        #         goal.p[2] = prev_goal.p[2]
-        #         break
-        #     elif k == 19:
-        #         print("Error: Did not reach surface when rechecking "
-        #               "at row {}, column {}".format(i, j))
-        #         sys.exit(1)
 
 
     def record_points(self, pts, nsamples, verbose=False):
@@ -191,7 +218,12 @@ class Calibration:
                 goal.p[2] += 0.01
                 self.arm.move(goal)
 
-                if not self.palpate():
+                palpate_file = os.path.join(
+                    self.folder,
+                    "palpation_{}_{}.csv".format(i, j)
+                )
+
+                if not self.palpate(palpate_file):
                     rospy.logerr("Didn't reach surface. Closing program")
                     sys.exit(1)
 
@@ -427,7 +459,7 @@ def parse_record(args):
     ]
     pts = [PyKDL.Frame(Calibration.ROT_MATRIX, pt) for pt in pts]
     if args.polaris:
-        calibration = Calibration(args.arm, polaris=True)
+        calibration = Calibration(args.arm, polaris=True, output=True)
         # pts = calibration.get_corners()
         # grid = calibration.gen_grid(pts, args.samples, verbose=args.verbose)
         # calibration.record_points_polaris(grid, verbose=args.verbose)
@@ -443,7 +475,7 @@ def parse_record(args):
         calibration.arm.move(goal)
         goal.p[2] -= 0.090
         calibration.arm.move(goal)
-        calibration.palpate()
+        calibration.palpate(os.path.join(calibration.folder, "single_palpation.csv"))
 
         # calibration.record_points(pts, args.samples, verbose=args.verbose)
 
@@ -505,9 +537,7 @@ if __name__ == "__main__":
     )
     parser_record.add_argument(
         "-o", "--output",
-        help="output recorded points "
-        "(filename automatically increments)",
-        default="data/data.csv"
+        help="folder to output data",
     )
     parser_record.add_argument(
         "-p", "--polaris",
