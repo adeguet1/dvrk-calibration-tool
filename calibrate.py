@@ -27,7 +27,8 @@ class Calibration:
         0,    0,   -1
     )
 
-    THRESH = 1.5
+    CONTACT_THRESH = 1.5
+    PALPATE_THRESH = 3
 
     def __init__(self, robot_name, polaris=False):
         print("initializing calibration for", robot_name)
@@ -82,6 +83,7 @@ class Calibration:
 
         # Store z-position and force in pos_v_force
         pos_v_force = []
+        joint_2_effort = []
         MM = 0.001
         TENTH_MM = 0.0001
 
@@ -89,7 +91,7 @@ class Calibration:
         STEPS_MM = int(0.02/MM)
 
         # Calculate number of steps required to move 4 mm with an increment of 0.1 mm
-        STEPS_TENTH_MM = int(0.004/TENTH_MM)
+        STEPS_TENTH_MM = int(0.008/TENTH_MM)
 
         oldtime = time.time()
 
@@ -99,7 +101,7 @@ class Calibration:
             goal.p[2] -= MM
             self.arm.move(goal)
             time.sleep(0.1)
-            if self.arm.get_current_wrench_body()[2] > self.THRESH:
+            if self.arm.get_current_wrench_body()[2] > self.CONTACT_THRESH:
                 # Record initial contact
                 goal.p = self.arm.get_current_position().p
                 break
@@ -108,11 +110,11 @@ class Calibration:
 
         print(time.time() - oldtime)
 
-        import pudb; pudb.set_trace()  # XXX BREAKPOINT
         # move arm 2mm up
-        goal.p[2] += 0.002
+        goal.p[2] += 0.004
 
         time.sleep(2)
+        self.arm.move(goal)
 
 
         oldtime = time.time()
@@ -124,11 +126,14 @@ class Calibration:
             force = self.arm.get_current_wrench_body()[2]
             z_pos = self.arm.get_current_position().p[2]
             pos_v_force.append([z_pos, force])
-            if abs(force) >= self.THRESH + .5:
+            joint_2_effort.append([z_pos, self.arm.get_current_joint_effort()[2]])
+            if abs(force) >= self.PALPATE_THRESH:
                 goal.p[2] += 0.05
+                self.arm.move(goal)
                 break
             elif i == STEPS_TENTH_MM - 1:
                 return False
+
 
         print(time.time() - oldtime)
 
@@ -136,7 +141,9 @@ class Calibration:
         data_contact = []
 
         # Sort pos_v_force based on z-position
+        pos_v_force_unsorted = np.array(pos_v_force)
         pos_v_force = np.array(sorted(pos_v_force, key=lambda t:t[0]))
+        joint_2_effort = np.array(joint_2_effort)
 
         moving = False
         for i, pt in enumerate(pos_v_force[1:]):
@@ -171,11 +178,17 @@ class Calibration:
             plt.scatter(pos_v_force[:,0], pos_v_force[:,1], s=10, color='green')
             plt.scatter(data_moving[:,0], data_moving[:,1], s=10, color='red')
             plt.scatter(data_contact[:,0], data_contact[:,1], s=10, color='blue')
+            plt.scatter(joint_2_effort[:,0], joint_2_effort[:,1], s=10, color='black')
             plt.show()
 
         outfile = open(output_file, 'w')
-        writer = csv.writer(outfile)
-        writer.writerows(pos_v_force)
+        fieldnames = ["z-position", "wrench", "joint_2_effort"]
+        writer = csv.DictWriter(outfile, fieldnames=fieldnames)
+        csv_dict = [
+            {"z-position": z, "wrench": f, "joint_2_effort": joint_2_effort[i]}
+            for i, (z, f) in enumerate(pos_v_force_unsorted)
+        ]
+        writer.writerows(csv_dict)
 
         return True
 
@@ -329,12 +342,27 @@ class Calibration:
         for i, pt in enumerate(pts):
             self.arm.move(pt)
             time.sleep(0.5)
-            m = list(self.marker.get_current_position())
-            self.data.append(
-                list(self.arm.get_current_joint_position()) +
-                list(self.arm.get_current_position().p) +
-                m
-            )
+
+            marker_pos = list(self.marker.get_current_position())
+            joints_pos = self.arm.get_current_joint_position()
+            arm_pos = list(self.arm.get_current_position().p)
+
+            # Create data dict with all values for csv.DictReader
+            data_dict = {
+                "arm_x_position": arm_pos[0],
+                "arm_y_position": arm_pos[1],
+                "arm_z_position": arm_pos[2],
+                "marker_x_position": marker_pos[0],
+                "marker_y_position": marker_pos[1],
+                "marker_z_position": marker_pos[2],
+            }
+
+            # Instead of manually giving the indices of the joints,
+            # loop through `joints_pos` and set the values of data_dict to `joint
+            for joint_num, joint_pos in enumerate(joints_pos):
+                data_dict.update({"joint_{}_position".format(joint_num), joint_pos})
+
+            self.data.append(data_dict)
             block = int(toolbar_width * i/(npoints - 1))
             arrows = '-' * block if block < 1 else (('-' * block)[:-1] + '>')
             sys.stdout.write("\r[{}{}]".format(arrows, ' ' * (toolbar_width - block)))
@@ -352,10 +380,7 @@ class Calibration:
             ])
 
             csvfile.write("# INFO: {}\n".format(info_text))
-            writer = csv.writer(
-                csvfile, delimiter=',',
-                quotechar='"', quoting=csv.QUOTE_MINIMAL
-            )
+            writer = csv.DictWriter(csvfile, fieldnames=self.data[0].keys())
             for row in self.data:
                 writer.writerow(row)
 
