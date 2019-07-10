@@ -53,9 +53,9 @@ def get_new_offset(data_file=None, error_fk_outfile=None):
         reader = csv.reader(infile)
         for row in reader:
             joints = np.append(joints,
-                               np.array([float(x) for x in row[3:]]))
+                               np.array([float(x) for x in row[:6]]))
             coords = np.append(coords,
-                               np.array([float(x) for x in row[:3]]))
+                               np.array([float(x) for x in row[6:9]]))
 
     coords = coords.reshape(-1, 3)
     joints = joints.reshape(-1, 6)
@@ -137,7 +137,7 @@ def get_new_offset_polaris(data_file=None, error_fk_outfile=None):
                 min_error = error
                 min_offset_mm = offset
             fk_plot.writerow([offset / 1000, error])
-    
+
     # unit: one tenth of a millimeter
     for num, offset in enumerate(range(min_offset_mm * 10 - 20,
                                        min_offset_mm * 10 + 20,
