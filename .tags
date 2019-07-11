@@ -4,39 +4,63 @@
 !_TAG_PROGRAM_NAME	Exuberant Ctags	//
 !_TAG_PROGRAM_URL	http://ctags.sourceforge.net	/official site/
 !_TAG_PROGRAM_VERSION	5.9~svn20110310	//
+CONTACT_THRESH	calibrate_plane.py	/^    CONTACT_THRESH = 1.5$/;"	v	class:PlaneCalibration
 Calibration	calibrate.py	/^class Calibration:$/;"	c
 Marker	marker.py	/^class Marker:$/;"	c
+PALPATE_THRESH	calibrate_plane.py	/^    PALPATE_THRESH = 3$/;"	v	class:PlaneCalibration
+PlaneCalibration	calibrate_plane.py	/^class PlaneCalibration(Calibration):$/;"	c
+PolarisCalibration	calibrate_polaris.py	/^class PolarisCalibration(Calibration):$/;"	c
 ROB_FILE	analyze_data.py	/^ROB_FILE = ("\/home\/cnookal1\/catkin_ws\/src\/cisst-saw"$/;"	v
 ROT_MATRIX	calibrate.py	/^    ROT_MATRIX = PyKDL.Rotation($/;"	v	class:Calibration
 Settings	.ycm_extra_conf.py	/^def Settings( **kwargs ):$/;"	f
-THRESH	calibrate.py	/^    THRESH = 1.5$/;"	v	class:Calibration
-TestCalibration	calibration_tests.py	/^class TestCalibration(unittest.TestCase):$/;"	c
-__init__	calibrate.py	/^    def __init__(self, robot_name, polaris=False):$/;"	m	class:Calibration
+TestCalibration	calibrate_tests.py	/^class TestCalibration(unittest.TestCase):$/;"	c
+__init__	calibrate.py	/^    def __init__(self, robot_name):$/;"	m	class:Calibration
+__init__	calibrate_polaris.py	/^    def __init__(self, robot_name):$/;"	m	class:PolarisCalibration
 __init__	marker.py	/^    def __init__(self):$/;"	m	class:Marker
-a	palpation_test.py	/^a = dvrk.arm("PSM3")/;"	v
+action	calibrate.py	/^        action="store_true"$/;"	v
+analyze_palpation	calibrate_plane.py	/^    def analyze_palpation(self):$/;"	m	class:PlaneCalibration
+args	calibrate.py	/^    args = parser.parse_args()$/;"	v
 callback	marker.py	/^    def callback(self, data):$/;"	m	class:Marker
 choose_filename	calibrate.py	/^def choose_filename(fpath):$/;"	f
-derivative	calibrate.py	/^def derivative(p1, p2):$/;"	f
-gen_grid	calibrate.py	/^    def gen_grid(self, corners, nsamples, verbose=False):$/;"	m	class:Calibration
-gen_wide_joint_positions	calibrate.py	/^    def gen_wide_joint_positions(self, nsamples=6):$/;"	m	class:Calibration
+default	calibrate.py	/^        default="data\/data.csv"$/;"	v
+default	calibrate.py	/^        default="data\/error_fk.csv"$/;"	v
+default	calibrate.py	/^        default=10,$/;"	v
+default	calibrate.py	/^        default=False,$/;"	v
+derivative	calibrate_plane.py	/^    def derivative(self, p1, p2):$/;"	m	class:PlaneCalibration
+gen_wide_joint_positions	calibrate_polaris.py	/^    def gen_wide_joint_positions(self, nsamples=6):$/;"	m	class:PolarisCalibration
 get_best_fit	analyze_data.py	/^def get_best_fit(pts):$/;"	f
 get_best_fit_error	analyze_data.py	/^def get_best_fit_error(pts):$/;"	f
-get_corners	calibrate.py	/^    def get_corners(self):$/;"	m	class:Calibration
+get_corners	calibrate_plane.py	/^    def get_corners(self):$/;"	m	class:PlaneCalibration
 get_current_position	marker.py	/^    def get_current_position(self):$/;"	m	class:Marker
 get_new_offset	analyze_data.py	/^def get_new_offset(data_file=None, error_fk_outfile=None):$/;"	f
 get_new_offset_polaris	analyze_data.py	/^def get_new_offset_polaris(data_file=None, error_fk_outfile=None):$/;"	f
+help	calibrate.py	/^        help="analyze outputted data and find offset"$/;"	v
+help	calibrate.py	/^        help="arm to record points from"$/;"	v
+help	calibrate.py	/^        help="data to read from",$/;"	v
+help	calibrate.py	/^        help="do not output graph of offset versus error",$/;"	v
+help	calibrate.py	/^        help="folder to output data",$/;"	v
+help	calibrate.py	/^        help="number of samples per row "$/;"	v
+help	calibrate.py	/^        help="output for the graph of offset versus error "$/;"	v
+help	calibrate.py	/^        help="record data for calibration"$/;"	v
+help	calibrate.py	/^        help="use polaris",$/;"	v
+help	calibrate.py	/^        help="write offset to file",$/;"	v
 home	calibrate.py	/^    def home(self):$/;"	m	class:Calibration
 kdl2np	rot_matrix_test.py	/^def kdl2np(r):$/;"	f
+nargs	calibrate.py	/^        nargs='?',$/;"	v
 np2kdl	rot_matrix_test.py	/^def np2kdl(arr):$/;"	f
-op	test.py	/^op = input()$/;"	v
 output_to_csv	calibrate.py	/^    def output_to_csv(self, fpath):$/;"	m	class:Calibration
-palpate	calibrate.py	/^    def palpate(self, output_to_csv=False, show_graph=True):$/;"	m	class:Calibration
+palpate	calibrate_plane.py	/^    def palpate(self, output_file, show_graph=True):$/;"	m	class:PlaneCalibration
 parse_analyze	calibrate.py	/^def parse_analyze(args):$/;"	f
 parse_record	calibrate.py	/^def parse_record(args):$/;"	f
 parse_view	calibrate.py	/^def parse_view(args):$/;"	f
+parser	calibrate.py	/^    parser = argparse.ArgumentParser(description="Calibrate the dVRK")$/;"	v
+parser_analyze	calibrate.py	/^    parser_analyze = subparser.add_parser($/;"	v
+parser_record	calibrate.py	/^    parser_record = subparser.add_parser($/;"	v
+parser_view	calibrate.py	/^    parser_view = subparser.add_parser("view", help="view outputted data")$/;"	v
 plot_data	calibrate.py	/^def plot_data(data_file):$/;"	f
-record_joints_polaris	calibrate.py	/^    def record_joints_polaris(self, joint_set, npoints=216, verbose=False):$/;"	m	class:Calibration
-record_points	calibrate.py	/^    def record_points(self, pts, nsamples, verbose=False):$/;"	m	class:Calibration
-record_points_polaris	calibrate.py	/^    def record_points_polaris(self, pts, npoints=100, verbose=False):$/;"	m	class:Calibration
+record_joints_polaris	calibrate_polaris.py	/^    def record_joints_polaris(self, joint_set, npoints=216, verbose=False):$/;"	m	class:PolarisCalibration
+record_points	calibrate_plane.py	/^    def record_points(self, pts, nsamples, verbose=False):$/;"	m	class:PlaneCalibration
 rot_matrix	rot_matrix_test.py	/^def rot_matrix(roll, pitch, yaw):$/;"	f
-test_distance	calibration_tests.py	/^    def test_distance(self):$/;"	m	class:TestCalibration
+subparser	calibrate.py	/^    subparser = parser.add_subparsers(title="subcommands")$/;"	v
+test_distance	calibrate_tests.py	/^    def test_distance(self):$/;"	m	class:TestCalibration
+type	calibrate.py	/^        type=int,$/;"	v

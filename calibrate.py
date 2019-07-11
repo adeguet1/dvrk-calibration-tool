@@ -179,15 +179,22 @@ def parse_record(args):
         calibration.record_joints_polaris(joint_set, npoints=216, verbose=args.verbose)
     else:
         from calibrate_plane import PlaneCalibration
-        calibration = PlaneCalibration(args.arm)
-        # pts = calibration.get_corners()
-        goal = pts[0]
-        goal.p[2] += 0.100
-        calibration.arm.move(goal)
-        goal.p[2] -= 0.090
-        calibration.arm.move(goal)
-        pos_v_force = calibration.palpate(os.path.join(calibration.folder, "single_palpation.csv"))
-        calibration.analyze_palpation(pos_v_force)
+        # calibration = PlaneCalibration(args.arm)
+        # # pts = calibration.get_corners()
+        # goal = pts[0]
+        # goal.p[2] += 0.010
+        # calibration.arm.move(goal)
+        # pos_v_force = calibration.palpate(os.path.join(calibration.folder, "single_palpation.csv"))
+        # calibration.analyze_palpation(pos_v_force)
+
+        # Analyze palpation only
+        csvfile = open("/home/cnookal1/catkin_ws/src/dvrk-calibration-tool/data/PSM3_2019-07-11_11-51-00/single_palpation.csv")
+        reader = csv.DictReader(csvfile)
+        pos_v_force = []
+        for row in reader:
+            pos_v_force.append([float(row["z-position"]), float(row["wrench"])])
+        print(pos_v_force)
+        PlaneCalibration.analyze_palpation(pos_v_force)
 
         # calibration.record_points(pts, args.samples, verbose=args.verbose)
 

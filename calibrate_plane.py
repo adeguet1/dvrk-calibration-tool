@@ -9,6 +9,7 @@ import PyKDL
 import rospy
 import matplotlib.pyplot as plt
 from calibrate import Calibration
+import pudb
 
 class PlaneCalibration(Calibration):
 
@@ -28,6 +29,57 @@ class PlaneCalibration(Calibration):
         sys.stdin.readline()
         pts.append(self.arm.get_current_position())
         return pts
+
+    def record_points(self, pts, nsamples, verbose=False):
+        """Moves in a zig-zag pattern in a grid and records the points
+        at which the arm reaches the surface"""
+        if not len(pts) == 3:
+            return False
+
+        self.info["points"] = [pt.p for pt in pts]
+        self.info["polaris"] = False
+
+
+        final = PyKDL.Frame()
+        final.p = copy(pts[0].p)
+        final.M = self.ROT_MATRIX
+        final.p[2] += 0.15
+
+        self.arm.move(final)
+        final.p[2] -= 0.1
+        self.arm.move(final)
+
+        goal = PyKDL.Frame(self.ROT_MATRIX)
+        print("Using points {}, {}, and {}".format(*[tuple(pt.p) for pt in pts]))
+
+        for i in range(nsamples):
+            rightside = pts[1].p + i / (nsamples - 1) * (pts[2].p - pts[1].p)
+            leftside = pts[0].p + i / (nsamples - 1) * (pts[2].p - pts[1].p)
+            print("moving arm to row ", i)
+            for j in range(nsamples):
+                print("\tmoving arm to column ", j)
+                goal = PyKDL.Frame(self.ROT_MATRIX)
+                if i % 2 == 0:
+                    goal.p = leftside + (j / (nsamples - 1) *
+                                         (rightside - leftside))
+                else:
+                    goal.p = rightside + (j / (nsamples - 1) *
+                                          (leftside - rightside))
+                goal.p[2] += 0.01
+                self.arm.move(goal)
+
+                palpate_file = os.path.join(
+                    self.folder,
+                    "palpation_{}_{}.csv".format(i, j)
+                )
+
+                if not self.palpate(palpate_file):
+                    rospy.logerr("Didn't reach surface. Closing program")
+                    sys.exit(1)
+
+                time.sleep(0.5)
+
+        print(rospy.get_caller_id(), '<- calibration complete')
 
     def palpate(self, output_file):
         """Move down until forces act on the motor in the z direction,
@@ -89,21 +141,24 @@ class PlaneCalibration(Calibration):
             {"z-position": z, "wrench": f}
             for i, (z, f) in enumerate(pos_v_force)
         ]
+        writer.writeheader()
         writer.writerows(csv_dict)
 
         return pos_v_force
 
-    def analyze_palpation(self, pos_v_force, show_graph=True):
+    @staticmethod
+    def analyze_palpation(pos_v_force, show_graph=True):
         data_moving = []
         data_contact = []
 
         # Sort pos_v_force based on z-position
         pos_v_force = np.array(sorted(pos_v_force, key=lambda t:t[0]))
 
+        # Separate points into either data_moving or data_contact
         moving = False
         for i, pt in enumerate(pos_v_force[1:]):
             # pos_v_force[i] is pos_v_force[1:][i-1], not the same as pt
-            deriv = self.derivative(pt, pos_v_force[i])
+            deriv = derivative(pt, pos_v_force[i])
             if deriv < -300:
                 if not moving:
                     data_contact.append(pos_v_force[i])
@@ -118,21 +173,19 @@ class PlaneCalibration(Calibration):
         data_contact = np.array(data_contact)
 
         contact_eqn = np.polyfit(data_contact[:, 0], data_contact[:, 1], 1)
-        moving_eqn = np.polyfit(data_moving[:, 0], data_moving[:, 1], 1)
-        old_error = self.get_error(data_moving)
-        new_error = self.get_error(data_moving[:-1])
-        if old_error - new_error > 0.05:
-            new_error = old_error
-            old_error = 1000000
-            while old_error - new_error > 0.05:
-                old_error = new_error
-                data_moving = data_moving[:-1]
-                new_error = self.get_error(data_moving)
+        moving_eqn, (new_residual,) = np.polyfit(data_moving[:, 0], data_moving[:, 1], 1, full=True)[:2]
+        old_residual = np.polyfit(data_moving[:-1][:, 0], data_moving[:-1][:, 1], 1, full=True)[1][0]
+        for i in range(10):
+            import pudb; pudb.set_trace()  # XXX BREAKPOINT
+            if new_residual - old_residual < 0.02:
+                break
+            data_moving = data_moving[:-1]
+            old_residual = new_residual
+            moving_eqn, (new_residual,) = np.polyfit(data_moving[:, 0], data_moving[:, 1], 1, full=True)[:2]
 
         new_z = (contact_eqn[1] - moving_eqn[1])/(moving_eqn[0] - contact_eqn[0])
 
         if show_graph:
-
             # Plot best fit lines
             plt.plot(data_moving[:, 0], moving_eqn[0] * data_moving[:, 0] + moving_eqn[1], '-', color='red')
             plt.plot(data_contact[:, 0], contact_eqn[0] * data_contact[:, 0] + contact_eqn[1], '-', color='blue')
@@ -145,63 +198,6 @@ class PlaneCalibration(Calibration):
 
         return new_z
 
-    def get_error(self, arr):
-        eqn = np.polyfit(arr[:, 0], arr[:, 1], 1)
-        import pudb; pudb.set_trace()  # XXX BREAKPOINT
-        errors = np.sqrt(np.sum(((eqn[0] * arr[:, 0] + eqn[1] - arr[:, 1])**2)))
-        return errors
-
-    def record_points(self, pts, nsamples, verbose=False):
-        """Moves in a zig-zag pattern in a grid and records the points
-        at which the arm reaches the surface"""
-        if not len(pts) == 3:
-            return False
-
-        self.info["points"] = [pt.p for pt in pts]
-        self.info["polaris"] = False
-
-
-        final = PyKDL.Frame()
-        final.p = copy(pts[0].p)
-        final.M = self.ROT_MATRIX
-        final.p[2] += 0.15
-
-        self.arm.move(final)
-        final.p[2] -= 0.1
-        self.arm.move(final)
-
-        goal = PyKDL.Frame(self.ROT_MATRIX)
-        print("Using points {}, {}, and {}".format(*[tuple(pt.p) for pt in pts]))
-
-        for i in range(nsamples):
-            rightside = pts[1].p + i / (nsamples - 1) * (pts[2].p - pts[1].p)
-            leftside = pts[0].p + i / (nsamples - 1) * (pts[2].p - pts[1].p)
-            print("moving arm to row ", i)
-            for j in range(nsamples):
-                print("\tmoving arm to column ", j)
-                goal = PyKDL.Frame(self.ROT_MATRIX)
-                if i % 2 == 0:
-                    goal.p = leftside + (j / (nsamples - 1) *
-                                         (rightside - leftside))
-                else:
-                    goal.p = rightside + (j / (nsamples - 1) *
-                                          (leftside - rightside))
-                goal.p[2] += 0.01
-                self.arm.move(goal)
-
-                palpate_file = os.path.join(
-                    self.folder,
-                    "palpation_{}_{}.csv".format(i, j)
-                )
-
-                if not self.palpate(palpate_file):
-                    rospy.logerr("Didn't reach surface. Closing program")
-                    sys.exit(1)
-
-                time.sleep(0.5)
-
-        print(rospy.get_caller_id(), '<- calibration complete')
-
-    def derivative(self, p1, p2):
-        return (p2[1] - p1[1]) / (p2[0] - p1[0])
+def derivative(p1, p2):
+    return (p2[1] - p1[1]) / (p2[0] - p1[0])
 
