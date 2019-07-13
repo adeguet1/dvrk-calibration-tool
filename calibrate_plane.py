@@ -49,8 +49,8 @@ class PlaneCalibration(Calibration):
             print("moving arm to row ", i)
             for j in range(nsamples):
                 print("\tmoving arm to column ", j)
-                if i == j == 4:
-                    import pudb; pudb.set_trace()  # XXX BREAKPOINT
+                # if i == j == 4:
+                #     import pudb; pudb.set_trace()  # XXX BREAKPOINT
                 goal = PyKDL.Frame(self.ROT_MATRIX)
                 if i % 2 == 0:
                     goal.p = leftside + (j / (nsamples - 1) *

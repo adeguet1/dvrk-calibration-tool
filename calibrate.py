@@ -58,10 +58,10 @@ class Calibration:
     def output_to_csv(self):
         "Outputs contents of self.data to fpath"
         with open(os.path.join(self.folder, "plane.csv"), 'w') as csvfile:
-            info_text = " ,".join([
-                "{}: {}".format(key, value)
-                for (key, value) in self.info.iteritems()
-            ])
+            # info_text = " ,".join([
+            #     "{}: {}".format(key, value)
+            #     for (key, value) in self.info.iteritems()
+            # ])
 
             # csvfile.write("# INFO: {}\n".format(info_text))
             writer = csv.DictWriter(csvfile, fieldnames=self.data[0].keys())
@@ -186,7 +186,7 @@ def parse_record(args):
         from calibrate_plane import PlaneCalibration
         calibration = PlaneCalibration(args.arm)
 
-        # pts = calibration.get_corners()
+        pts = calibration.get_corners()
         goal = copy(pts[2])
         goal.p[2] += 0.05
         calibration.arm.move(goal)
