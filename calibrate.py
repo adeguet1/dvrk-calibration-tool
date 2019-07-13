@@ -55,16 +55,17 @@ class Calibration:
             self.arm.move_joint(goal)
         self.arm.move(self.ROT_MATRIX)
 
-    def output_to_csv(self, fpath):
+    def output_to_csv(self):
         "Outputs contents of self.data to fpath"
-        with open(choose_filename(fpath), 'w') as csvfile:
+        with open(os.path.join(self.folder, "plane.csv"), 'w') as csvfile:
             info_text = " ,".join([
                 "{}: {}".format(key, value)
                 for (key, value) in self.info.iteritems()
             ])
 
-            csvfile.write("# INFO: {}\n".format(info_text))
+            # csvfile.write("# INFO: {}\n".format(info_text))
             writer = csv.DictWriter(csvfile, fieldnames=self.data[0].keys())
+            writer.writeheader()
             for row in self.data:
                 writer.writerow(row)
 
@@ -90,35 +91,39 @@ def plot_data(data_file):
 
     polaris_coords = np.array([])
 
-    joints = np.array([])
+    joint_set = np.array([])
 
     with open(data_file, 'r') as csvfile:
-        csvfile.readline()
-        reader = csv.reader(csvfile)
+        reader = csv.DictReader(csvfile)
         for row in reader:
             if len(row) == 12:
                 polaris = True
             else:
                 polaris = False
-            joints = np.append(
-                joints,
-                np.array([float(x) for x in row[0:6]])
-            )
-            coords = np.append(
-                coords,
-                np.array([float(x) for x in row[6:9]])
-            )
+            joints = np.array([
+                float(row["joint_{}_position".format(joint_num)])
+                for joint_num in range(6)
+            ])
+            joint_set = np.append(joint_set, joints)
+            coord = np.array([
+                float(row["arm_position_x"]),
+                float(row["arm_position_y"]),
+                float(row["arm_position_z"])
+            ])
+            coords = np.append(coords, coord)
             if polaris:
-                polaris_coords = np.append(
-                    polaris_coords,
-                    np.array([float(x) for x in row[9:12]])
-                )
+                # Need to modify this for dictreader
+                pass
+                # polaris_coords = np.append(
+                #     polaris_coords,
+                #     np.array([float(x) for x in row[9:12]])
+                # )
     coords = coords.reshape(-1, 3)
 
     if polaris:
         polaris_coords = polaris_coords.reshape(-1, 3)
 
-    joints = joints.reshape(-1, 6)
+    joint_set = joint_set.reshape(-1, 6)
 
 
     if polaris:
@@ -162,9 +167,9 @@ def plot_data(data_file):
 
 def parse_record(args):
     pts = [
-        PyKDL.Vector(0.04969137179347108, 0.12200283317260341, -0.19149147092692725),
-        PyKDL.Vector(0.09269885200354012, -0.06284151552138104, -0.1977706048728867),
-        PyKDL.Vector(-0.06045055029036737, -0.11093816039641696, -0.19326454699986603)
+        PyKDL.Vector(0.04969137179347108, 0.12200283317260341, -0.19),
+        PyKDL.Vector(0.09269885200354012, -0.06284151552138104, -0.19),
+        PyKDL.Vector(-0.06045055029036737, -0.11093816039641696, -0.19)
     ]
     pts = [PyKDL.Frame(Calibration.ROT_MATRIX, pt) for pt in pts]
     if args.polaris:
@@ -179,26 +184,43 @@ def parse_record(args):
         calibration.record_joints_polaris(joint_set, npoints=216, verbose=args.verbose)
     else:
         from calibrate_plane import PlaneCalibration
-        # calibration = PlaneCalibration(args.arm)
-        # # pts = calibration.get_corners()
+        calibration = PlaneCalibration(args.arm)
+
+        # pts = calibration.get_corners()
+        goal = copy(pts[2])
+        goal.p[2] += 0.05
+        calibration.arm.move(goal)
+        goal = copy(pts[0])
+        calibration.arm.home()
+        goal.p[2] += 0.090
+        calibration.arm.move(goal)
+        goal.p[2] -= 0.085
+        calibration.arm.move(goal)
+
         # goal = pts[0]
-        # goal.p[2] += 0.010
+        # goal.p[2] += 0.05
+        # calibration.arm.move(goal)
+        # goal.p[2] -= 0.045
         # calibration.arm.move(goal)
         # pos_v_force = calibration.palpate(os.path.join(calibration.folder, "single_palpation.csv"))
-        # calibration.analyze_palpation(pos_v_force)
+        # if not pos_v_force:
+        #     rospy.logerr("Didn't reach surface; closing program")
+        #     sys.exit(1)
+        # print("Using {}".format(calibration.analyze_palpation(pos_v_force)))
 
         # Analyze palpation only
-        csvfile = open("/home/cnookal1/catkin_ws/src/dvrk-calibration-tool/data/PSM3_2019-07-11_11-51-00/single_palpation.csv")
-        reader = csv.DictReader(csvfile)
-        pos_v_force = []
-        for row in reader:
-            pos_v_force.append([float(row["z-position"]), float(row["wrench"])])
-        print(pos_v_force)
-        PlaneCalibration.analyze_palpation(pos_v_force)
+        # csvfile = open("/home/cnookal1/catkin_ws/src/dvrk-calibration-tool/data/PSM3_2019-07-11_11-51-00/single_palpation.csv")
+        # csvfile = open("/home/cnookal1/catkin_ws/src/dvrk-calibration-tool/data/PSM3_2019-07-11_14-04-57/single_palpation.csv")
+        # csvfile = open("/home/cnookal1/catkin_ws/src/dvrk-calibration-tool/data/PSM3_2019-07-11_14-15-36/single_palpation.csv")
+        # reader = csv.DictReader(csvfile)
+        # pos_v_force = []
+        # for row in reader:
+        #     pos_v_force.append([float(row["z-position"]), float(row["wrench"])])
+        # PlaneCalibration.analyze_palpation(pos_v_force)
 
-        # calibration.record_points(pts, args.samples, verbose=args.verbose)
+        calibration.record_points(pts, args.samples, verbose=args.verbose)
 
-    # calibration.output_to_csv(args.output)
+    calibration.output_to_csv()
 
 
 def parse_view(args):
@@ -206,10 +228,12 @@ def parse_view(args):
 
 
 def parse_analyze(args):
+    folder = os.path.dirname(args.input)
+    offset_v_error_filename = os.path.join(folder, "offset_v_error.csv")
     if args.polaris:
-        offset = 1000 * get_new_offset_polaris(args.input, args.output)
+        offset = 1000 * get_new_offset_polaris(args.input, offset_v_error_filename)
     else:
-        offset = 1000 * get_new_offset(args.input, args.output)
+        offset = 1000 * get_new_offset(args.input, offset_v_error_filename)
     if args.write:
         if os.path.exists(args.write):
             print("Writing offset...")
@@ -291,7 +315,6 @@ if __name__ == "__main__":
         "-o", "--output",
         help="output for the graph of offset versus error "
         "(filename automatically increments)",
-        default="data/error_fk.csv"
     )
     parser_analyze.add_argument(
         "-p", "--polaris",

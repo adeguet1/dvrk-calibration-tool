@@ -9,7 +9,6 @@ import PyKDL
 import rospy
 import matplotlib.pyplot as plt
 from calibrate import Calibration
-import pudb
 
 class PlaneCalibration(Calibration):
 
@@ -40,17 +39,9 @@ class PlaneCalibration(Calibration):
         self.info["polaris"] = False
 
 
-        final = PyKDL.Frame()
-        final.p = copy(pts[0].p)
-        final.M = self.ROT_MATRIX
-        final.p[2] += 0.15
-
-        self.arm.move(final)
-        final.p[2] -= 0.1
-        self.arm.move(final)
-
         goal = PyKDL.Frame(self.ROT_MATRIX)
         print("Using points {}, {}, and {}".format(*[tuple(pt.p) for pt in pts]))
+        # import pudb; pudb.set_trace()  # XXX BREAKPOINT
 
         for i in range(nsamples):
             rightside = pts[1].p + i / (nsamples - 1) * (pts[2].p - pts[1].p)
@@ -58,6 +49,8 @@ class PlaneCalibration(Calibration):
             print("moving arm to row ", i)
             for j in range(nsamples):
                 print("\tmoving arm to column ", j)
+                if i == j == 4:
+                    import pudb; pudb.set_trace()  # XXX BREAKPOINT
                 goal = PyKDL.Frame(self.ROT_MATRIX)
                 if i % 2 == 0:
                     goal.p = leftside + (j / (nsamples - 1) *
@@ -67,15 +60,45 @@ class PlaneCalibration(Calibration):
                                           (leftside - rightside))
                 goal.p[2] += 0.01
                 self.arm.move(goal)
-
                 palpate_file = os.path.join(
                     self.folder,
                     "palpation_{}_{}.csv".format(i, j)
                 )
 
-                if not self.palpate(palpate_file):
+                pos_v_force = self.palpate(palpate_file)
+                if not pos_v_force:
                     rospy.logerr("Didn't reach surface. Closing program")
                     sys.exit(1)
+
+
+
+                z_pos = self.analyze_palpation(pos_v_force, show_graph=False)
+
+                goal = self.arm.get_desired_position()
+                goal.p[2] += 0.02
+                self.arm.move(goal)
+
+
+                # create dict with joints then arm coords
+
+                pos = self.arm.get_current_position().p
+
+                # DELETE THIS BEFORE TESTING ------------------------------------------------
+                # z_pos = pos[2]
+                print("Using {} instead of {}".format(z_pos, pos[2]))
+
+                data_dict = {
+                    "arm_position_x": pos[0],
+                    "arm_position_y": pos[1],
+                    "arm_position_z": z_pos
+                }
+
+                for joint_num, joint_pos in enumerate(self.arm.get_current_joint_position()):
+                    data_dict.update({"joint_{}_position".format(joint_num): joint_pos})
+
+                self.data.append(data_dict)
+
+
 
                 time.sleep(0.5)
 
@@ -85,7 +108,8 @@ class PlaneCalibration(Calibration):
         """Move down until forces act on the motor in the z direction,
         then record position, joints, and wrench body of the robot"""
 
-        time.sleep(2)
+        time.sleep(0.2)
+        initial = self.arm.get_desired_position()
         goal = self.arm.get_desired_position()
 
         # Store z-position and force in pos_v_force
@@ -95,12 +119,12 @@ class PlaneCalibration(Calibration):
         TENTH_MM = 0.0001
 
         # Calculate number of steps required to move 2 cm with an increment of 1 mm
-        STEPS_MM = int(0.02/MM)
+        STEPS_MM = int(0.06/MM)
 
         # Calculate number of steps required to move 4 mm with an increment of 0.1 mm
-        STEPS_TENTH_MM = int(0.008/TENTH_MM)
+        STEPS_TENTH_MM = int(0.010/TENTH_MM)
 
-        goal.p[2] += 0.01
+        oldtime = time.time()
 
         for i in range(STEPS_MM):
             goal.p[2] -= MM
@@ -111,28 +135,32 @@ class PlaneCalibration(Calibration):
                 goal.p = self.arm.get_current_position().p
                 break
             elif i == STEPS_MM - 1:
-                return None
+                return False
 
-        # move arm 2mm up
-        goal.p[2] += 0.004
+        # move arm 3mm up
+        goal.p[2] += 0.003
 
-        time.sleep(2)
+        time.sleep(0.5)
         self.arm.move(goal)
+
+        print(time.time() - oldtime)
+        oldtime = time.time()
 
         for i in range(STEPS_TENTH_MM): # in tenths of millimeters
             goal.p[2] -= TENTH_MM
             self.arm.move(goal)
-            time.sleep(0.5)
+            time.sleep(0.4)
             force = self.arm.get_current_wrench_body()[2]
             z_pos = self.arm.get_current_position().p[2]
             pos_v_force.append([z_pos, force])
             joint_2_effort.append([z_pos, self.arm.get_current_joint_effort()[2]])
             if abs(force) >= self.PALPATE_THRESH:
-                goal.p[2] += 0.05
-                self.arm.move(goal)
                 break
             elif i == STEPS_TENTH_MM - 1:
-                return None
+                print("wasn't able to recheck")
+                return False
+
+        print(time.time() - oldtime)
 
         outfile = open(output_file, 'w')
         fieldnames = ["z-position", "wrench"]
@@ -144,10 +172,13 @@ class PlaneCalibration(Calibration):
         writer.writeheader()
         writer.writerows(csv_dict)
 
+        self.arm.move(initial)
+
+
         return pos_v_force
 
     @staticmethod
-    def analyze_palpation(pos_v_force, show_graph=True):
+    def analyze_palpation(pos_v_force, show_graph=False):
         data_moving = []
         data_contact = []
 
@@ -173,22 +204,26 @@ class PlaneCalibration(Calibration):
         data_contact = np.array(data_contact)
 
         contact_eqn = np.polyfit(data_contact[:, 0], data_contact[:, 1], 1)
-        moving_eqn, (new_residual,) = np.polyfit(data_moving[:, 0], data_moving[:, 1], 1, full=True)[:2]
-        old_residual = np.polyfit(data_moving[:-1][:, 0], data_moving[:-1][:, 1], 1, full=True)[1][0]
+        moving_eqn, (old_residual,) = np.polyfit(data_moving[:, 0], data_moving[:, 1], 1, full=True)[:2]
+        new_residual = np.polyfit(data_moving[:-1, 0], data_moving[:-1, 0], 1, full=True)[1][0]
         for i in range(10):
-            import pudb; pudb.set_trace()  # XXX BREAKPOINT
-            if new_residual - old_residual < 0.02:
+            # import pudb; pudb.set_trace()  # XXX BREAKPOINT
+            if old_residual - new_residual < 0.008:
                 break
+            if i == 0:
+                new_residual = np.polyfit(data_moving[:, 0], data_moving[:, 1], 1, full=True)[1][0]
             data_moving = data_moving[:-1]
             old_residual = new_residual
             moving_eqn, (new_residual,) = np.polyfit(data_moving[:, 0], data_moving[:, 1], 1, full=True)[:2]
 
         new_z = (contact_eqn[1] - moving_eqn[1])/(moving_eqn[0] - contact_eqn[0])
 
+
         if show_graph:
             # Plot best fit lines
             plt.plot(data_moving[:, 0], moving_eqn[0] * data_moving[:, 0] + moving_eqn[1], '-', color='red')
             plt.plot(data_contact[:, 0], contact_eqn[0] * data_contact[:, 0] + contact_eqn[1], '-', color='blue')
+            plt.plot(new_z, contact_eqn[0] * new_z + contact_eqn[1], 'o', color='purple')
 
             # First plot all points, then plot the contact points and moving points
             plt.scatter(pos_v_force[:,0], pos_v_force[:,1], s=10, color='green')
@@ -200,4 +235,11 @@ class PlaneCalibration(Calibration):
 
 def derivative(p1, p2):
     return (p2[1] - p1[1]) / (p2[0] - p1[0])
+
+def get_error(arr):
+    eqn, (errors,) = np.polyfit(arr[:, 0], arr[:, 1], 1, full=True)[:2]
+    # import pudb; pudb.set_trace()  # XXX BREAKPOINT
+    errors = np.sqrt(np.sum(((eqn[0] * arr[:, 0] + eqn[1] - arr[:, 1])**2)))
+    return eqn, errors
+
 

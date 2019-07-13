@@ -37,7 +37,7 @@ def get_best_fit_error(pts):
                                 len(errors))
 
 
-def get_new_offset(data_file=None, error_fk_outfile=None):
+def get_new_offset(data_file, offset_v_error_filename):
 
     rob = crp.robManipulator()
     rob.LoadRobot(ROB_FILE)
@@ -45,49 +45,60 @@ def get_new_offset(data_file=None, error_fk_outfile=None):
     min_error = 0
     min_offset = 0
 
-    joints = np.array([])
+    joint_set = np.array([])
     coords = np.array([])
 
     with open(data_file) as infile:
-        infile.readline() # Disregard comment line
-        reader = csv.reader(infile)
+        # infile.readline() # Disregard comment line
+        reader = csv.DictReader(infile)
         for row in reader:
-            joints = np.append(joints,
-                               np.array([float(x) for x in row[:6]]))
-            coords = np.append(coords,
-                               np.array([float(x) for x in row[6:9]]))
+            # print(row)
+            joints = np.array([
+                float(row["joint_{}_position".format(joint_num)])
+                for joint_num in range(6)
+            ])
+            joint_set = np.append(joint_set, joints)
+            coord = np.array([
+                float(row["arm_position_x"]),
+                float(row["arm_position_y"]),
+                float(row["arm_position_z"])
+            ])
+            coords = np.append(coords, coord)
 
     coords = coords.reshape(-1, 3)
-    joints = joints.reshape(-1, 6)
+    joint_set = joint_set.reshape(-1, 6)
 
     # Add checker for outfile
-    with open(error_fk_outfile, 'w') as outfile:
-        fk_plot = csv.writer(outfile)
-        for num, offset in enumerate(np.arange(-.9, .09, .001)):
-            data = joints.copy()
+    with open(offset_v_error_filename, 'w') as outfile:
+        fk_plot = csv.DictWriter(outfile, fieldnames=["offset", "error"])
+        fk_plot.writeheader()
+        for num, offset in enumerate(range(-20, 20, 1)):
+            data = joint_set.copy()
             fk_pts = np.array([])
             for q in data:
-                q[2] += offset
+                q[2] += offset / 1000
                 fk_pts = np.append(fk_pts, rob.ForwardKinematics(q)[:3, 3])
             fk_pts = fk_pts.reshape((-1, 3))
             error = get_best_fit_error(fk_pts)
             if num == 0 or error < min_error:
                 min_error = error
-                min_offset = offset
-            fk_plot.writerow([offset, error])
+                min_offset_mm = offset
+            fk_plot.writerow({"offset": offset, "error": error})
 
-    for num, offset in enumerate(np.arange(min_offset - 0.02,
-                                           min_offset + 0.02,
-                                           0.0001)):
-        data = joints.copy()
+    for num, offset in enumerate(range(min_offset_mm * 10 - 20,
+                                       min_offset_mm * 10 + 20,
+                                       1)):
+        data = joint_set.copy()
         fk_pts = np.zeros(coords.shape)
         for i, q in enumerate(data):
-            q[2] += offset
+            q[2] += offset / 10000
             fk_pts[i] = rob.ForwardKinematics(q)[:3, 3]
         error = get_best_fit_error(fk_pts)
         if num == 0 or error < min_error:
             min_error = error
-            min_offset = offset
+            min_offset_tenth_mm = offset
+
+    min_offset = min_offset_tenth_mm / 10000
 
     return min_offset
 
@@ -105,7 +116,7 @@ def get_new_offset_polaris(data_file=None, error_fk_outfile=None):
     polaris_coords = np.array([])
 
     with open(data_file) as infile:
-        infile.readline()
+        # infile.readline()
         reader = csv.reader(infile)
         for row in reader:
             joints = np.append(joints,
