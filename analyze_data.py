@@ -37,7 +37,7 @@ def get_best_fit_error(pts):
                                 len(errors))
 
 
-def get_new_offset(data_file, offset_v_error_filename):
+def get_new_offset(offset_v_error_filename, *data_files):
 
     rob = crp.robManipulator()
     rob.LoadRobot(ROB_FILE)
@@ -46,54 +46,83 @@ def get_new_offset(data_file, offset_v_error_filename):
     min_offset = 0
 
     joint_set = np.array([])
+    joint_sets = []
     coords = np.array([])
+    coord_set = []
 
-    with open(data_file) as infile:
-        # infile.readline() # Disregard comment line
-        reader = csv.DictReader(infile)
-        for row in reader:
-            # print(row)
-            joints = np.array([
-                float(row["joint_{}_position".format(joint_num)])
-                for joint_num in range(6)
-            ])
-            joint_set = np.append(joint_set, joints)
-            coord = np.array([
-                float(row["arm_position_x"]),
-                float(row["arm_position_y"]),
-                float(row["arm_position_z"])
-            ])
-            coords = np.append(coords, coord)
+    # Accepts n number of data_files
 
-    coords = coords.reshape(-1, 3)
-    joint_set = joint_set.reshape(-1, 6)
+    # Loop through data_files and put joint sets into `joint_sets` variable and coord set into
+    # `coord_set` variable
+    for data_file in data_files:
+        with open(data_file) as infile:
+            # infile.readline() # Disregard comment line
+            reader = csv.DictReader(infile)
+            for row in reader:
+                # print(row)
+                joints = np.array([
+                    float(row["joint_{}_position".format(joint_num)])
+                    for joint_num in range(6)
+                ])
+                joint_set = np.append(joint_set, joints)
+                coord = np.array([
+                    float(row["arm_position_x"]),
+                    float(row["arm_position_y"]),
+                    float(row["arm_position_z"])
+                ])
+                coords = np.append(coords, coord)
+
+        coords = coords.reshape(-1, 3)
+        joint_set = joint_set.reshape(-1, 6)
+
+        joint_sets.append(joint_set)
+        coord_set.append(coords)
+
 
     # Add checker for outfile
     with open(offset_v_error_filename, 'w') as outfile:
         fk_plot = csv.DictWriter(outfile, fieldnames=["offset", "error"])
         fk_plot.writeheader()
         for num, offset in enumerate(range(-20, 20, 1)):
-            data = joint_set.copy()
-            fk_pts = np.array([])
-            for q in data:
-                q[2] += offset / 1000
-                fk_pts = np.append(fk_pts, rob.ForwardKinematics(q)[:3, 3])
-            fk_pts = fk_pts.reshape((-1, 3))
-            error = get_best_fit_error(fk_pts)
+            fk_pt_set = []
+            # Go through each file's `joint_set` and `coords`
+            for joint_set, coords in zip(joint_sets, coord_set):
+                data = joint_set.copy()
+                fk_pts = np.array([])
+                for q in data:
+                    q[2] += offset / 1000
+                    fk_pts = np.append(fk_pts, rob.ForwardKinematics(q)[:3, 3])
+                fk_pts = fk_pts.reshape((-1, 3))
+                fk_pt_set.append(fk_pts)
+
+            # Get sum of errors of all files
+            import pudb; pudb.set_trace()  # XXX BREAKPOINT
+            error = sum([get_best_fit_error(fk_pt) for fk_pt in fk_pt_set])
+
+            # Check for minimum error
             if num == 0 or error < min_error:
                 min_error = error
                 min_offset_mm = offset
+
+            # Write plots
             fk_plot.writerow({"offset": offset, "error": error})
 
     for num, offset in enumerate(range(min_offset_mm * 10 - 20,
                                        min_offset_mm * 10 + 20,
                                        1)):
-        data = joint_set.copy()
-        fk_pts = np.zeros(coords.shape)
-        for i, q in enumerate(data):
-            q[2] += offset / 10000
-            fk_pts[i] = rob.ForwardKinematics(q)[:3, 3]
-        error = get_best_fit_error(fk_pts)
+        fk_pt_set = []
+        # Go through each file's `joint_set` and `coords`
+        for joint_set, coords in zip(joint_sets, coord_set):
+            data = joint_set.copy()
+            fk_pts = np.zeros(coords.shape)
+            for i, q in enumerate(data):
+                q[2] += offset / 10000
+                fk_pts[i] = rob.ForwardKinematics(q)[:3, 3]
+
+        # Get sum of errors of all files
+        error = sum([get_best_fit_error(fk_pt) for fk_pt in fk_pt_set])
+
+        # Check for minimum error
         if num == 0 or error < min_error:
             min_error = error
             min_offset_tenth_mm = offset

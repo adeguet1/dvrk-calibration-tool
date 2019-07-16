@@ -255,12 +255,12 @@ def parse_view(args):
 
 
 def parse_analyze(args):
-    folder = os.path.dirname(args.input)
+    folder = os.path.dirname(args.input[0])
     offset_v_error_filename = os.path.join(folder, "offset_v_error.csv")
     if args.polaris:
-        offset = 1000 * get_new_offset_polaris(args.input, offset_v_error_filename)
+        offset = 1000 * get_new_offset_polaris(args.input[0], offset_v_error_filename)
     else:
-        offset = 1000 * get_new_offset(args.input, offset_v_error_filename)
+        offset = 1000 * get_new_offset(offset_v_error_filename, *args.input)
     if args.write:
         if os.path.exists(args.write):
             print("Writing offset...")
@@ -344,6 +344,7 @@ if __name__ == "__main__":
     parser_analyze.add_argument(
         "input",
         help="data to read from",
+        nargs='+'
     )
     parser_analyze.add_argument(
         "-o", "--output",
