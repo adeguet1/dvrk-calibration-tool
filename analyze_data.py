@@ -166,3 +166,4 @@ def get_new_offset_polaris(data_file=None, error_fk_outfile=None):
     min_offset = min_offset_tenth_mm / 10000
 
     return min_offset
+

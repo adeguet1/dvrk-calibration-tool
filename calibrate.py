@@ -18,6 +18,7 @@ import dvrk
 from analyze_data import get_new_offset, get_best_fit, get_new_offset_polaris
 from marker import Marker
 from cisstNumericalPython import nmrRegistrationRigid
+from glob import glob
 
 class Calibration:
 
@@ -182,49 +183,60 @@ def parse_record(args):
         print("Starting calibration")
         time.sleep(0.5)
         calibration.record_joints_polaris(joint_set, npoints=216, verbose=args.verbose)
+        calibration.output_to_csv()
     else:
         from calibrate_plane import PlaneCalibration
         calibration = PlaneCalibration(args.arm)
 
-        pts = calibration.get_corners()
-        goal = copy(pts[2])
-        goal.p[2] += 0.05
-        calibration.arm.move(goal)
-        goal = copy(pts[0])
-        calibration.arm.home()
-        goal.p[2] += 0.090
-        calibration.arm.move(goal)
-        goal.p[2] -= 0.085
-        calibration.arm.move(goal)
+        if not args.single_palpation:
+            pts = calibration.get_corners()
+            goal = copy(pts[2])
+            goal.p[2] += 0.05
+            calibration.arm.move(goal)
+            goal = copy(pts[0])
+            calibration.arm.home()
+            goal.p[2] += 0.090
+            calibration.arm.move(goal)
+            goal.p[2] -= 0.085
+            calibration.arm.move(goal)
+            calibration.record_points(pts, args.samples, verbose=args.verbose)
+            calibration.output_to_csv()
+        else:
+            goal = pts[0]
+            goal.p[2] += 0.05
+            calibration.arm.move(goal)
+            goal.p[2] -= 0.045
+            calibration.arm.move(goal)
+            pos_v_force = calibration.palpate(os.path.join(calibration.folder, "single_palpation.csv"))
+            if not pos_v_force:
+                rospy.logerr("Didn't reach surface; closing program")
+                sys.exit(1)
+            print("Using {}".format(calibration.analyze_palpation(pos_v_force)))
 
-        # goal = pts[0]
-        # goal.p[2] += 0.05
-        # calibration.arm.move(goal)
-        # goal.p[2] -= 0.045
-        # calibration.arm.move(goal)
-        # pos_v_force = calibration.palpate(os.path.join(calibration.folder, "single_palpation.csv"))
-        # if not pos_v_force:
-        #     rospy.logerr("Didn't reach surface; closing program")
-        #     sys.exit(1)
-        # print("Using {}".format(calibration.analyze_palpation(pos_v_force)))
-
-        # Analyze palpation only
-        # csvfile = open("/home/cnookal1/catkin_ws/src/dvrk-calibration-tool/data/PSM3_2019-07-11_11-51-00/single_palpation.csv")
-        # csvfile = open("/home/cnookal1/catkin_ws/src/dvrk-calibration-tool/data/PSM3_2019-07-11_14-04-57/single_palpation.csv")
-        # csvfile = open("/home/cnookal1/catkin_ws/src/dvrk-calibration-tool/data/PSM3_2019-07-11_14-15-36/single_palpation.csv")
-        # reader = csv.DictReader(csvfile)
-        # pos_v_force = []
-        # for row in reader:
-        #     pos_v_force.append([float(row["z-position"]), float(row["wrench"])])
-        # PlaneCalibration.analyze_palpation(pos_v_force)
-
-        calibration.record_points(pts, args.samples, verbose=args.verbose)
-
-    calibration.output_to_csv()
 
 
 def parse_view(args):
-    plot_data(args.input)
+    if args.palpation:
+        from calibrate_plane import PlaneCalibration
+        if os.path.isdir(args.input):
+            files = [
+                filename
+                for filename in os.listdir(args.input)
+                if filename.startswith("palpation")
+            ]
+            for filename in files:
+                with open(filename) as csvfile:
+                    reader = csv.DictReader(csvfile)
+                    print("Reading {}".format(filename))
+                    pos_v_force = []
+                    for row in reader:
+                        pos_v_force.append([float(row["z-position"]), float(row["wrench"])])
+                    PlaneCalibration.analyze_palpation(pos_v_force, show_graph=True)
+        else:
+            with open(args.input) as csvfile:
+                reader = csv.DictReader(csvfile)
+    else:
+        plot_data(args.input)
 
 
 def parse_analyze(args):
@@ -292,12 +304,21 @@ if __name__ == "__main__":
         default=10,
         type=int,
     )
+    parser_record.add_argument(
+        "-s", "--single-palpation",
+        help="perform single palpation",
+        action="store_true",
+        default=False
+    )
     parser_record.set_defaults(func=parse_record)
 
     parser_view = subparser.add_parser("view", help="view outputted data")
+    parser_view.add_argument("input", help="data to read from")
     parser_view.add_argument(
-        "input", help="data to read from",
-        nargs='?', default="data/data.csv"
+        "-p", "--palpation",
+        help="view palpation",
+        action="store_true",
+        default=False
     )
     parser_view.set_defaults(func=parse_view)
 
@@ -308,8 +329,6 @@ if __name__ == "__main__":
     parser_analyze.add_argument(
         "input",
         help="data to read from",
-        nargs='?',
-        default="data/data.csv"
     )
     parser_analyze.add_argument(
         "-o", "--output",
