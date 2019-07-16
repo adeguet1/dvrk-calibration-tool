@@ -18,7 +18,6 @@ import dvrk
 from analyze_data import get_new_offset, get_best_fit, get_new_offset_polaris
 from marker import Marker
 from cisstNumericalPython import nmrRegistrationRigid
-from glob import glob
 
 class Calibration:
 
