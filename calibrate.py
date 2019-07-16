@@ -47,7 +47,15 @@ class Calibration:
         print("starting home")
         self.arm.home()
         self.arm.close_jaw()
+
+        if self.arm.get_current_joint_position()[2] > 0.12:
+            # Already past cannula
+            carte_goal = self.arm.get_current_position().p
+            carte_goal[2] += 0.04
+            self.arm.move(carte_goal)
+
         goal = np.zeros(6)
+
         if ((self.arm.name() == 'PSM1') or (self.arm.name() == 'PSM2') or
             (self.arm.name() == 'PSM3') or (self.arm.name() == 'ECM')):
             # set in position joint mode
@@ -188,7 +196,7 @@ def parse_record(args):
         calibration = PlaneCalibration(args.arm)
 
         if not args.single_palpation:
-            pts = calibration.get_corners()
+            # pts = calibration.get_corners()
             goal = copy(pts[2])
             goal.p[2] += 0.05
             calibration.arm.move(goal)
@@ -200,8 +208,16 @@ def parse_record(args):
             calibration.arm.move(goal)
             calibration.record_points(pts, args.samples, verbose=args.verbose)
             calibration.output_to_csv()
+            print("Run `calibrate.py view {}` to view the recorded data points,")
+            print("run `calibrate.py analyze {}` to analyze the recorded data points, or")
+            print("run `calibrate.py analyze {} -w "
+                  "~/catkin_ws/src/cisst-saw/sawIntuitiveResearchKit/share/jhu-daVinci/"
+                  "sawRobotIO1394-PSM3-28613.xml` to analyze and write the resulting offset")
         else:
-            goal = pts[0]
+            print("Position the arm at the point you want to palpate at, then press enter.",
+                  end=' ')
+            sys.stdin.readline()
+            goal = calibration.arm.get_current_position()
             goal.p[2] += 0.05
             calibration.arm.move(goal)
             goal.p[2] -= 0.045
@@ -210,7 +226,7 @@ def parse_record(args):
             if not pos_v_force:
                 rospy.logerr("Didn't reach surface; closing program")
                 sys.exit(1)
-            print("Using {}".format(calibration.analyze_palpation(pos_v_force)))
+            print("Using {}".format(calibration.analyze_palpation(pos_v_force, show_graph=True)))
 
 
 

@@ -14,6 +14,7 @@ class PlaneCalibration(Calibration):
 
     CONTACT_THRESH = 1.5
     PALPATE_THRESH = 2.5
+    MIN_RESIDUAL_DIFF = 0.008
 
     def get_corners(self):
         "Gets input from user to get three corners of the plane"
@@ -72,25 +73,17 @@ class PlaneCalibration(Calibration):
 
 
 
-                z_pos = self.analyze_palpation(pos_v_force, show_graph=False)
+                pos = self.analyze_palpation(pos_v_force, show_graph=False)
 
                 goal = self.arm.get_desired_position()
                 goal.p[2] += 0.02
                 self.arm.move(goal)
 
 
-                # create dict with joints then arm coords
-
-                pos = self.arm.get_current_position().p
-
-                # DELETE THIS BEFORE TESTING ------------------------------------------------
-                # z_pos = pos[2]
-                print("Using {} instead of {}".format(z_pos, pos[2]))
-
                 data_dict = {
                     "arm_position_x": pos[0],
                     "arm_position_y": pos[1],
-                    "arm_position_z": z_pos
+                    "arm_position_z": pos[2]
                 }
 
                 for joint_num, joint_pos in enumerate(self.arm.get_current_joint_position()):
@@ -217,7 +210,8 @@ class PlaneCalibration(Calibration):
 
         # Remove points that negatively contribute towards error of the line
         for i in range(10):
-            if old_residual - new_residual < 0.008:
+            if old_residual - new_residual < PlaneCalibration.MIN_RESIDUAL_DIFF:
+                # If residual difference is less than MIN_RESIDUAL_DIFF, stop removing points
                 break
             if i == 0:
                 # Add initial new_residual for removing points
@@ -236,7 +230,7 @@ class PlaneCalibration(Calibration):
 
         # Find average of the two points next to the z value
         for i, pt in enumerate(pos_v_force):
-            if pt[2] >= pos[2] and pos_v_force[i-1] <= pos[2]:
+            if pos_v_force[i-1][2] <= pos[2] <= pt[2]:
                 pos[0] = (pt[0] + pos_v_force[i-1][0])/2
                 pos[1] = (pt[1] + pos_v_force[i-1][1])/2
                 break
