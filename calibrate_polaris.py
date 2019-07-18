@@ -8,11 +8,12 @@ import rospy
 import matplotlib.pyplot as plt
 from calibrate import Calibration
 from marker import Marker
+from copy import copy
 
 class PolarisCalibration(Calibration):
 
     def __init__(self, robot_name):
-        super(PolarisCalibration, self).__init__()
+        super(PolarisCalibration, self).__init__(robot_name)
         self.marker = Marker()
         self.polaris = True
 
@@ -30,14 +31,15 @@ class PolarisCalibration(Calibration):
                         q[2] = .070 + (sample3) / (nsamples - 1) * .150
                     else:
                         q[2] = .220 - (sample3) / (nsamples - 1) * .150
-                    yield q
+                    yield copy(q)
 
-    def record_joints_polaris(self, joint_set, npoints=216, verbose=False):
+    def record_joints(self, joint_set, verbose=False):
         """Record points using polaris by controlling the joints
         of the dVRK"""
         # Get number of columns of terminal and subtract it by 2 to get
         # the toolbar width
         toolbar_width = int(os.popen('stty size', 'r').read().split()[1]) - 2
+        npoints = len(joint_set)
         sys.stdout.write("[%s]\r" % (" " * toolbar_width))
         sys.stdout.flush()
         start_time = time.time()
@@ -48,20 +50,27 @@ class PolarisCalibration(Calibration):
             self.arm.move_joint(q)
             self.arm.move(self.ROT_MATRIX)
             time.sleep(0.5)
-            marker_pos = self.marker.get_current_position()
             rot_matrix = self.arm.get_current_position().M
             rot_diff = self.ROT_MATRIX * rot_matrix.Inverse()
+            marker_pos = self.marker.get_current_position()
             if np.rad2deg(np.abs(rot_diff.GetRPY()).max()) > 2:
                 rospy.logwarn("Disregarding bad orientation:\n{}".format(rot_matrix))
                 bad_rots += 1
             elif marker_pos is None:
                 rospy.logwarn("Disregarding bad data received from Polaris")
             else:
-                self.data.append(
-                    list(self.arm.get_current_joint_position()) +
-                    list(self.arm.get_current_position().p) +
-                    list(marker_pos)
-                )
+                arm_coord = self.arm.get_current_position().p
+                data_dict = {
+                    "arm_position_x": arm_coord[0],
+                    "arm_position_y": arm_coord[1],
+                    "arm_position_z": arm_coord[2],
+                    "polaris_position_x": marker_pos[0],
+                    "polaris_position_y": marker_pos[1],
+                    "polaris_position_z": marker_pos[2],
+                }
+                for joint_num, joint_pos in enumerate(self.arm.get_current_joint_position()):
+                    data_dict.update({"joint_{}_position".format(joint_num): joint_pos})
+                self.data.append(data_dict)
             block = int(toolbar_width * i/(npoints - 1))
             arrows = '-' * block if block < 1 else (('-' * block)[:-1] + '>')
             sys.stdout.write("\r[{}{}]".format(arrows, ' ' * (toolbar_width - block)))

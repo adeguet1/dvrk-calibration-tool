@@ -96,7 +96,6 @@ def get_new_offset(offset_v_error_filename, *data_files):
                 fk_pt_set.append(fk_pts)
 
             # Get sum of errors of all files
-            import pudb; pudb.set_trace()  # XXX BREAKPOINT
             error = sum([get_best_fit_error(fk_pt) for fk_pt in fk_pt_set])
 
             # Check for minimum error
@@ -118,6 +117,8 @@ def get_new_offset(offset_v_error_filename, *data_files):
             for i, q in enumerate(data):
                 q[2] += offset / 10000
                 fk_pts[i] = rob.ForwardKinematics(q)[:3, 3]
+            fk_pts = fk_pts.reshape((-1, 3))
+            fk_pt_set.append(fk_pts)
 
         # Get sum of errors of all files
         error = sum([get_best_fit_error(fk_pt) for fk_pt in fk_pt_set])
@@ -140,22 +141,29 @@ def get_new_offset_polaris(data_file=None, error_fk_outfile=None):
     min_error = 0
     min_offset = 0
 
-    joints = np.array([])
+    joint_set = np.array([])
     coords = np.array([])
     polaris_coords = np.array([])
 
     with open(data_file) as infile:
         # infile.readline()
-        reader = csv.reader(infile)
+        reader = csv.DictReader(infile)
         for row in reader:
-            joints = np.append(joints,
-                               np.array([float(x) for x in row[:6]]))
-            coords = np.append(coords,
-                               np.array([float(x) for x in row[6:9]]))
-            polaris_coords = np.append(
-                polaris_coords,
-                np.array([float(x) for x in row[9:]])
-            )
+            joints = np.array([
+                float(row["joint_{}_position".format(joint_num)])
+                for joint_num in range(6)
+            ])
+            joint_set = np.append(joint_set, joints)
+            coord = np.array([
+                float(row["arm_position_x"]),
+                float(row["arm_position_y"]),
+                float(row["arm_position_z"])
+            ])
+            coords = np.append(coords, coord)
+            polaris_coord = np.array([
+                ""
+            ])
+            polaris_coords = np.append(polaris_coords, polaris_coord)
 
     coords = coords.reshape(-1, 3)
     joints = joints.reshape(-1, 6)

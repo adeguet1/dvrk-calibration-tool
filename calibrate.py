@@ -19,7 +19,7 @@ from analyze_data import get_new_offset, get_best_fit, get_new_offset_polaris
 from marker import Marker
 from cisstNumericalPython import nmrRegistrationRigid
 
-class Calibration:
+class Calibration(object):
 
     ROT_MATRIX = PyKDL.Rotation(
         1,    0,    0,
@@ -66,12 +66,6 @@ class Calibration:
     def output_to_csv(self):
         "Outputs contents of self.data to fpath"
         with open(os.path.join(self.folder, "plane.csv"), 'w') as csvfile:
-            # info_text = " ,".join([
-            #     "{}: {}".format(key, value)
-            #     for (key, value) in self.info.iteritems()
-            # ])
-
-            # csvfile.write("# INFO: {}\n".format(info_text))
             writer = csv.DictWriter(csvfile, fieldnames=self.data[0].keys())
             writer.writeheader()
             for row in self.data:
@@ -95,6 +89,7 @@ def choose_filename(fpath):
 
 def plot_data(data_file):
     "Plots the data from the csv file data_file"
+
     coords = np.array([])
 
     polaris_coords = np.array([])
@@ -104,10 +99,6 @@ def plot_data(data_file):
     with open(data_file, 'r') as csvfile:
         reader = csv.DictReader(csvfile)
         for row in reader:
-            if len(row) == 12:
-                polaris = True
-            else:
-                polaris = False
             joints = np.array([
                 float(row["joint_{}_position".format(joint_num)])
                 for joint_num in range(6)
@@ -119,13 +110,17 @@ def plot_data(data_file):
                 float(row["arm_position_z"])
             ])
             coords = np.append(coords, coord)
-            if polaris:
-                # Need to modify this for dictreader
-                pass
-                # polaris_coords = np.append(
-                #     polaris_coords,
-                #     np.array([float(x) for x in row[9:12]])
-                # )
+            if len(row) == 12:
+                polaris = True
+                polaris_coord = np.array([
+                    float(row["polaris_position_x"]),
+                    float(row["polaris_position_y"]),
+                    float(row["polaris_position_z"]),
+                ])
+                polaris_coords = np.append(polaris_coords, polaris_coord)
+            else:
+                polaris = False
+
     coords = coords.reshape(-1, 3)
 
     if polaris:
@@ -186,10 +181,10 @@ def parse_record(args):
         # pts = calibration.get_corners()
         # grid = calibration.gen_grid(pts, args.samples, verbose=args.verbose)
         # calibration.record_points_polaris(grid, verbose=args.verbose)
-        joint_set = calibration.gen_wide_joint_positions()
+        joint_set = list(calibration.gen_wide_joint_positions())
         print("Starting calibration")
         time.sleep(0.5)
-        calibration.record_joints_polaris(joint_set, npoints=216, verbose=args.verbose)
+        calibration.record_joints(joint_set, verbose=args.verbose)
         calibration.output_to_csv()
     else:
         from calibrate_plane import PlaneCalibration
@@ -208,11 +203,14 @@ def parse_record(args):
             calibration.arm.move(goal)
             calibration.record_points(pts, args.samples, verbose=args.verbose)
             calibration.output_to_csv()
-            print("Run `calibrate.py view {}` to view the recorded data points,")
-            print("run `calibrate.py analyze {}` to analyze the recorded data points, or")
+            print("Run `calibrate.py view {}` to view the recorded data points,"
+                  .format(os.path.join(calibration.folder, "plane.csv")))
+            print("run `calibrate.py analyze {}` to analyze the recorded data points, or"
+                  .format(os.path.join(calibration.folder, "plane.csv")))
             print("run `calibrate.py analyze {} -w "
                   "~/catkin_ws/src/cisst-saw/sawIntuitiveResearchKit/share/jhu-daVinci/"
-                  "sawRobotIO1394-PSM3-28613.xml` to analyze and write the resulting offset")
+                  "sawRobotIO1394-PSM3-28613.xml` to analyze and write the resulting offset"
+                  .format(os.path.join(calibration.folder, "plane.csv")))
         else:
             print("Position the arm at the point you want to palpate at, then press enter.",
                   end=' ')
