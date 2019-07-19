@@ -98,7 +98,7 @@ def plot_data(data_file):
 
     with open(data_file, 'r') as csvfile:
         reader = csv.DictReader(csvfile)
-        for row in reader:
+        for i, row in enumerate(reader):
             joints = np.array([
                 float(row["joint_{}_position".format(joint_num)])
                 for joint_num in range(6)

@@ -161,20 +161,23 @@ def get_new_offset_polaris(data_file=None, error_fk_outfile=None):
             ])
             coords = np.append(coords, coord)
             polaris_coord = np.array([
-                ""
+                float(row["polaris_position_x"]),
+                float(row["polaris_position_y"]),
+                float(row["polaris_position_z"])
             ])
             polaris_coords = np.append(polaris_coords, polaris_coord)
 
     coords = coords.reshape(-1, 3)
-    joints = joints.reshape(-1, 6)
+    joint_set = joint_set.reshape(-1, 6)
     polaris_coords = polaris_coords.reshape(-1, 3)
+    import pudb; pudb.set_trace()  # XXX BREAKPOINT
 
     # Add checker for outfile
     # unit: millimeter
     with open(error_fk_outfile, 'w') as outfile:
         fk_plot = csv.writer(outfile)
         for num, offset in enumerate(range(-20, 20, 1)):
-            data = joints.copy()
+            data = joint_set.copy()
             fk_pts = np.array([])
             for q in data:
                 q[2] += offset / 1000
@@ -190,7 +193,7 @@ def get_new_offset_polaris(data_file=None, error_fk_outfile=None):
     for num, offset in enumerate(range(min_offset_mm * 10 - 20,
                                        min_offset_mm * 10 + 20,
                                        1)):
-        data = joints.copy()
+        data = joint_set.copy()
         fk_pts = np.zeros(coords.shape)
         for i, q in enumerate(data):
             q[2] += offset / 10000
