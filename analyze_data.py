@@ -170,7 +170,6 @@ def get_new_offset_polaris(data_file=None, error_fk_outfile=None):
     coords = coords.reshape(-1, 3)
     joint_set = joint_set.reshape(-1, 6)
     polaris_coords = polaris_coords.reshape(-1, 3)
-    import pudb; pudb.set_trace()  # XXX BREAKPOINT
 
     # Add checker for outfile
     # unit: millimeter

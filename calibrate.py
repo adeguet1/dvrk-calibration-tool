@@ -59,7 +59,7 @@ class Calibration(object):
         if ((self.arm.name() == 'PSM1') or (self.arm.name() == 'PSM2') or
             (self.arm.name() == 'PSM3') or (self.arm.name() == 'ECM')):
             # set in position joint mode
-            goal[2] = 0.12
+            goal[2] = 0.08
             self.arm.move_joint(goal)
         self.arm.move(self.ROT_MATRIX)
 
@@ -186,12 +186,20 @@ def parse_record(args):
         time.sleep(0.5)
         calibration.record_joints(joint_set, verbose=args.verbose)
         calibration.output_to_csv()
+        print("Run `calibrate.py view {}` to view the recorded data points,"
+                .format(os.path.join(calibration.folder, "plane.csv")))
+        print("run `calibrate.py analyze -p {}` to analyze the recorded data points, or"
+                .format(os.path.join(calibration.folder, "plane.csv")))
+        print("run `calibrate.py analyze -p {} -w "
+                "~/catkin_ws/src/cisst-saw/sawIntuitiveResearchKit/share/jhu-daVinci/"
+                "sawRobotIO1394-PSM3-28613.xml` to analyze and write the resulting offset"
+                .format(os.path.join(calibration.folder, "plane.csv")))
     else:
         from calibrate_plane import PlaneCalibration
         calibration = PlaneCalibration(args.arm)
 
         if not args.single_palpation:
-            # pts = calibration.get_corners()
+            pts = calibration.get_corners()
             goal = copy(pts[2])
             goal.p[2] += 0.05
             calibration.arm.move(goal)

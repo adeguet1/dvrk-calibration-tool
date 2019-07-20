@@ -56,7 +56,6 @@ class PlaneCalibration(Calibration):
                 else:
                     goal.p = rightside + (j / (nsamples - 1) *
                                           (leftside - rightside))
-                plane_pos = copy(goal.p)
                 goal.p[2] += 0.01
                 self.arm.move(goal)
                 palpate_file = os.path.join(
@@ -78,14 +77,10 @@ class PlaneCalibration(Calibration):
                 self.arm.move(goal)
 
 
-                import pudb; pudb.set_trace()  # XXX BREAKPOINT
                 data_dict = {
                     "arm_position_x": pos[0],
                     "arm_position_y": pos[1],
                     "arm_position_z": pos[2],
-                    "polaris_position_x": pos[0],
-                    "polaris_position_y": pos[1],
-                    "polaris_position_z": plane_pos[2],
                 }
 
                 for joint_num, joint_pos in enumerate(self.arm.get_current_joint_position()):
