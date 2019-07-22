@@ -1,5 +1,6 @@
 from __future__ import division
 import csv
+import os.path
 import numpy as np
 import scipy.linalg
 import cisstRobotPython as crp
@@ -79,7 +80,6 @@ def get_new_offset(offset_v_error_filename, *data_files):
         coord_set.append(coords)
 
 
-    # Add checker for outfile
     with open(offset_v_error_filename, 'w') as outfile:
         fk_plot = csv.DictWriter(outfile, fieldnames=["offset", "error"])
         fk_plot.writeheader()
@@ -106,27 +106,36 @@ def get_new_offset(offset_v_error_filename, *data_files):
             # Write plots
             fk_plot.writerow({"offset": offset, "error": error})
 
-    for num, offset in enumerate(range(min_offset_mm * 10 - 20,
-                                       min_offset_mm * 10 + 20,
-                                       1)):
-        fk_pt_set = []
-        # Go through each file's `joint_set` and `coords`
-        for joint_set, coords in zip(joint_sets, coord_set):
-            data = joint_set.copy()
-            fk_pts = np.zeros(coords.shape)
-            for i, q in enumerate(data):
-                q[2] += offset / 10000
-                fk_pts[i] = rob.ForwardKinematics(q)[:3, 3]
-            fk_pts = fk_pts.reshape((-1, 3))
-            fk_pt_set.append(fk_pts)
+    # Make precise outfile
+    root, ext = os.path.splitext(offset_v_error_filename)
+    precise_offset_v_error_filename = root + "_precise" + ext
+    with open(precise_offset_v_error_filename, 'w') as outfile:
+        fk_plot = csv.DictWriter(outfile, fieldnames=["offset", "error"])
+        fk_plot.writeheader()
+        for num, offset in enumerate(range(min_offset_mm * 10 - 20,
+                                        min_offset_mm * 10 + 20,
+                                        1)):
+            fk_pt_set = []
+            # Go through each file's `joint_set` and `coords`
+            for joint_set, coords in zip(joint_sets, coord_set):
+                data = joint_set.copy()
+                fk_pts = np.zeros(coords.shape)
+                for i, q in enumerate(data):
+                    q[2] += offset / 10000
+                    fk_pts[i] = rob.ForwardKinematics(q)[:3, 3]
+                fk_pts = fk_pts.reshape((-1, 3))
+                fk_pt_set.append(fk_pts)
 
-        # Get sum of errors of all files
-        error = sum([get_best_fit_error(fk_pt) for fk_pt in fk_pt_set])
+            # Get sum of errors of all files
+            error = sum([get_best_fit_error(fk_pt) for fk_pt in fk_pt_set])
 
-        # Check for minimum error
-        if num == 0 or error < min_error:
-            min_error = error
-            min_offset_tenth_mm = offset
+            # Check for minimum error
+            if num == 0 or error < min_error:
+                min_error = error
+                min_offset_tenth_mm = offset
+
+            # Write plots
+            fk_plot.writerow({"offset": offset, "error": error})
 
     min_offset = min_offset_tenth_mm / 10000
 

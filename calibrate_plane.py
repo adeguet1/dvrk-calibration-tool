@@ -64,6 +64,11 @@ class PlaneCalibration(Calibration):
                 )
 
                 pos_v_force = self.palpate(palpate_file)
+
+                goal = self.arm.get_desired_position()
+                goal.p[2] += 0.02
+                self.arm.move(goal)
+
                 if not pos_v_force:
                     rospy.logerr("Didn't reach surface. Closing program")
                     sys.exit(1)
@@ -71,10 +76,10 @@ class PlaneCalibration(Calibration):
 
 
                 pos = self.analyze_palpation(pos_v_force, show_graph=False)
+                if pos is None:
+                    rospy.logwarn("Didn't get enough data, disregarding point and continuing to next")
+                    continue
 
-                goal = self.arm.get_desired_position()
-                goal.p[2] += 0.02
-                self.arm.move(goal)
 
 
                 data_dict = {
@@ -198,6 +203,8 @@ class PlaneCalibration(Calibration):
         data_moving = np.array(data_moving)
         data_contact = np.array(data_contact)
 
+        if len(data_moving) == 0 or len(data_contact) == 0:
+            return None
         # Generate line of best fit for period during contact
         contact_eqn = np.polyfit(data_contact[:, 0], data_contact[:, 1], 1)
 

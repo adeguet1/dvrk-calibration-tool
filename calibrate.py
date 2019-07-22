@@ -169,10 +169,16 @@ def plot_data(data_file):
 
 
 def parse_record(args):
+    # pts = [
+    #     PyKDL.Vector(0.04969137179347108, 0.12200283317260341, -0.19),
+    #     PyKDL.Vector(0.09269885200354012, -0.06284151552138104, -0.19),
+    #     PyKDL.Vector(-0.06045055029036737, -0.11093816039641696, -0.19)
+
+    # ]
     pts = [
-        PyKDL.Vector(0.04969137179347108, 0.12200283317260341, -0.19),
-        PyKDL.Vector(0.09269885200354012, -0.06284151552138104, -0.19),
-        PyKDL.Vector(-0.06045055029036737, -0.11093816039641696, -0.19)
+        PyKDL.Vector(0.032352239987663386, 0.09112554778646448, -0.1552123241995624),
+        PyKDL.Vector(0.07298771358146197, -0.05720891999824999, -0.16137494511349101),
+        PyKDL.Vector(-0.0430777628612891, -0.09345770839964689, -0.15956836746933412),
     ]
     pts = [PyKDL.Frame(Calibration.ROT_MATRIX, pt) for pt in pts]
     if args.polaris:
@@ -199,7 +205,7 @@ def parse_record(args):
         calibration = PlaneCalibration(args.arm)
 
         if not args.single_palpation:
-            pts = calibration.get_corners()
+            # pts = calibration.get_corners()
             goal = copy(pts[2])
             goal.p[2] += 0.05
             calibration.arm.move(goal)
@@ -237,25 +243,50 @@ def parse_record(args):
 
 
 def parse_view(args):
-    if args.palpation:
+    if os.path.isdir(args.input):
         from calibrate_plane import PlaneCalibration
-        if os.path.isdir(args.input):
-            files = [
-                filename
-                for filename in os.listdir(args.input)
-                if filename.startswith("palpation")
-            ]
-            for filename in files:
-                with open(filename) as csvfile:
-                    reader = csv.DictReader(csvfile)
-                    print("Reading {}".format(filename))
-                    pos_v_force = []
-                    for row in reader:
-                        pos_v_force.append([float(row["z-position"]), float(row["wrench"])])
-                    PlaneCalibration.analyze_palpation(pos_v_force, show_graph=True)
-        else:
-            with open(args.input) as csvfile:
+        files = [
+            os.path.join(args.input, filename)
+            for filename in os.listdir(args.input)
+            if filename.startswith("palpation")
+        ]
+        for filename in files:
+            with open(filename) as csvfile:
                 reader = csv.DictReader(csvfile)
+                print("Reading {}".format(filename))
+                pos_v_force = []
+                for row in reader:
+                    pos_v_force.append([
+                        float(row["x-position"]),
+                        float(row["y-position"]),
+                        float(row["z-position"]),
+                        float(row["wrench"]),
+                    ])
+                PlaneCalibration.analyze_palpation(pos_v_force, show_graph=True)
+    elif os.path.basename(args.input).startswith("palpation"):
+        with open(args.input) as csvfile:
+            reader = csv.DictReader(csvfile)
+            print("Reading {}".format(filename))
+            pos_v_force = []
+            for row in reader:
+                pos_v_force.append([
+                    float(row["x-position"]),
+                    float(row["y-position"]),
+                    float(row["z-position"]),
+                    float(row["wrench"]),
+                ])
+            PlaneCalibration.analyze_palpation(pos_v_force, show_graph=True)
+    elif os.path.basename(args.input).startswith("offset_v_error"):
+        with open(args.input) as csvfile:
+            reader = csv.DictReader(csvfile)
+            offsets = []
+            errors = []
+            for row in reader:
+                offsets.append(float(row["offset"]))
+                errors.append(float(row["error"]))
+            plt.plot(offsets, errors, '-', color="red")
+            plt.scatter(offsets, errors, s=10, color="green")
+            plt.show()
     else:
         plot_data(args.input)
 
@@ -335,12 +366,6 @@ if __name__ == "__main__":
 
     parser_view = subparser.add_parser("view", help="view outputted data")
     parser_view.add_argument("input", help="data to read from")
-    parser_view.add_argument(
-        "-p", "--palpation",
-        help="view palpation",
-        action="store_true",
-        default=False
-    )
     parser_view.set_defaults(func=parse_view)
 
     parser_analyze = subparser.add_parser(
