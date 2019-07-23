@@ -243,12 +243,15 @@ class PlaneCalibration(Calibration):
             # Plot best fit lines
             plt.plot(data_moving[:, 0], moving_eqn[0] * data_moving[:, 0] + moving_eqn[1], '-', color='red')
             plt.plot(data_contact[:, 0], contact_eqn[0] * data_contact[:, 0] + contact_eqn[1], '-', color='blue')
-            plt.plot(pos[2], contact_eqn[0] * pos[2] + contact_eqn[1], 'o', color='purple')
+            plt.plot(pos[2], contact_eqn[0] * pos[2] + contact_eqn[1], 'o', color='purple', label="Intersection")
 
             # First plot all points, then plot the contact points and moving points
-            plt.scatter(z_v_force[:,0], z_v_force[:,1], s=10, color='green')
-            plt.scatter(data_moving[:,0], data_moving[:,1], s=10, color='red')
-            plt.scatter(data_contact[:,0], data_contact[:,1], s=10, color='blue')
+            plt.scatter(z_v_force[:,0], z_v_force[:,1], s=10, color='green', label="Outliers")
+            plt.scatter(data_moving[:,0], data_moving[:,1], s=10, color='red', label="Points of movement")
+            plt.scatter(data_contact[:,0], data_contact[:,1], s=10, color='blue', label="Points of contact")
+            plt.legend()
+            plt.xlabel("Z")
+            plt.ylabel("Wrench")
             plt.show()
 
         return pos

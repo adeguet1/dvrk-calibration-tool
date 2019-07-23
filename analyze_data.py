@@ -109,6 +109,7 @@ def get_new_offset(offset_v_error_filename, *data_files):
     # Make precise outfile
     root, ext = os.path.splitext(offset_v_error_filename)
     precise_offset_v_error_filename = root + "_precise" + ext
+
     with open(precise_offset_v_error_filename, 'w') as outfile:
         fk_plot = csv.DictWriter(outfile, fieldnames=["offset", "error"])
         fk_plot.writeheader()

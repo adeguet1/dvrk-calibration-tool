@@ -158,13 +158,16 @@ def plot_data(data_file):
     ax = fig.gca(projection='3d')
     if polaris:
         ax.scatter(polaris_coords[:,0], polaris_coords[:,1], polaris_coords[:,2],
-            c='b', s=20)
+            c='b', s=20, label="Polaris")
+        ax.scatter(coords[:,0], coords[:,1], coords[:,2], c='r', s=20, label="Arm")
     else:
         ax.plot_surface(X, Y, Z, rstride=1, cstride=1, alpha=0.2)
-    ax.scatter(coords[:,0], coords[:,1], coords[:,2], c='r', s=20)
+        ax.scatter(coords[:,0], coords[:,1], coords[:,2], c='r', s=20)
+
     plt.xlabel('X')
     plt.ylabel('Y')
     ax.set_zlabel('Z')
+    ax.legend()
     plt.show()
 
 
@@ -205,7 +208,7 @@ def parse_record(args):
         calibration = PlaneCalibration(args.arm)
 
         if not args.single_palpation:
-            # pts = calibration.get_corners()
+            pts = calibration.get_corners()
             goal = copy(pts[2])
             goal.p[2] += 0.05
             calibration.arm.move(goal)
