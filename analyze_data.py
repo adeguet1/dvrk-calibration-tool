@@ -1,4 +1,4 @@
-from __future__ import division
+from __future__ import division, print_function
 import csv
 import os.path
 import numpy as np
@@ -45,8 +45,7 @@ def get_quadratic_min(pts):
     :param numpy.ndarray pts The points to get the minimum of
     """
     polyfit = np.polynomial.Polynomial.fit(pts[:, 0], pts[:, 1], 2)
-    import pudb; pudb.set_trace()  # XXX BREAKPOINT
-    equation = polyfit.convert().coef
+    equation = polyfit.convert().coef[::-1]
     min_x = -equation[1] / (2 * equation[0])
     return min_x
 
@@ -109,6 +108,9 @@ def get_new_offset(offset_v_error_filename, data_files, polaris=False):
         fk_plot = csv.DictWriter(outfile, fieldnames=["offset", "error"])
         fk_plot.writeheader()
         offset_v_error = np.array([])
+
+        # -2cm to 2cm
+        # In tenths of a millimeter
         for num, offset in enumerate(range(-200, 200, 1)):
             fk_pt_set = []
             # Go through each file's `joint_set` and `coords`
@@ -137,7 +139,8 @@ def get_new_offset(offset_v_error_filename, data_files, polaris=False):
             offset_v_error = np.append(offset_v_error, np.array([offset, error])).reshape(-1, 2)
             fk_plot.writerow({"offset": offset, "error": error})
 
+        # print(offset_v_error[:, 0])
         min_offset = get_quadratic_min(offset_v_error)
 
-    return min_offset
+    return min_offset / 10000
 

@@ -15,7 +15,7 @@ from mpl_toolkits.mplot3d import Axes3D
 import PyKDL
 import rospy
 import dvrk
-from analyze_data import get_new_offset, get_best_fit_plane
+from analyze_data import get_new_offset, get_best_fit_plane, get_quadratic_min
 from marker import Marker
 from cisstNumericalPython import nmrRegistrationRigid
 
@@ -195,11 +195,11 @@ def parse_record(args):
         time.sleep(0.5)
         calibration.record_joints(joint_set, verbose=args.verbose)
         calibration.output_to_csv()
-        print("Run `calibrate.py view {}` to view the recorded data points,"
+        print("Run `./calibrate.py view {}` to view the recorded data points,"
                 .format(os.path.join(calibration.folder, "plane.csv")))
-        print("run `calibrate.py analyze -p {}` to analyze the recorded data points, or"
+        print("run `./calibrate.py analyze -p {}` to analyze the recorded data points, or"
                 .format(os.path.join(calibration.folder, "plane.csv")))
-        print("run `calibrate.py analyze -p {} -w "
+        print("run `./calibrate.py analyze -p {} -w "
                 "~/catkin_ws/src/cisst-saw/sawIntuitiveResearchKit/share/jhu-daVinci/"
                 "sawRobotIO1394-PSM3-28613.xml` to analyze and write the resulting offset"
                 .format(os.path.join(calibration.folder, "plane.csv")))
@@ -220,11 +220,11 @@ def parse_record(args):
             calibration.arm.move(goal)
             calibration.record_points(pts, args.samples, verbose=args.verbose)
             calibration.output_to_csv()
-            print("Run `calibrate.py view {}` to view the recorded data points,"
+            print("Run `./calibrate.py view {}` to view the recorded data points,"
                   .format(os.path.join(calibration.folder, "plane.csv")))
-            print("run `calibrate.py analyze {}` to analyze the recorded data points, or"
+            print("run `./calibrate.py analyze {}` to analyze the recorded data points, or"
                   .format(os.path.join(calibration.folder, "plane.csv")))
-            print("run `calibrate.py analyze {} -w "
+            print("run `./calibrate.py analyze {} -w "
                   "~/catkin_ws/src/cisst-saw/sawIntuitiveResearchKit/share/jhu-daVinci/"
                   "sawRobotIO1394-PSM3-28613.xml` to analyze and write the resulting offset"
                   .format(os.path.join(calibration.folder, "plane.csv")))
@@ -287,8 +287,18 @@ def parse_view(args):
             for row in reader:
                 offsets.append(float(row["offset"]))
                 errors.append(float(row["error"]))
-            plt.plot(offsets, errors, '-', color="red")
+            x = np.arange(offsets[0], offsets[-1] + 1, 1)
+            polyfit = np.polynomial.Polynomial.fit(offsets, errors, 2)
+            equation = polyfit.convert().coef[::-1]
+            print("Quadratic fit: {}x^2 + {}x + {}".format(*equation))
+            min_x = -equation[1] / (2 * equation[0])
+            print("Minimum offset: {}mm".format(min_x / 10))
+            min_y = equation[0] * min_x ** 2 + equation[1] * min_x + equation[2]
+            y = equation[0] * x ** 2 + equation[1] * x + equation[2]
+            # plt.plot(offsets, errors, '-', color="red")
+            plt.plot(x, y, '-', color="blue")
             plt.scatter(offsets, errors, s=10, color="green")
+            plt.plot(min_x, min_y, 'o', color="purple")
             plt.show()
     else:
         plot_data(args.input)
