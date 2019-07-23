@@ -9,36 +9,48 @@ from cisstNumericalPython import nmrRegistrationRigid
 ROB_FILE = ("/home/cnookal1/catkin_ws/src/cisst-saw"
             "/sawIntuitiveResearchKit/share/deprecated/dvpsm.rob")
 
-def get_best_fit(pts):
-    # best-fit linear plane
+
+def get_best_fit_plane(pts):
+    """
+    Gets the plane of best fit for `pts` along with the error
+    :param np.ndarray pts The points to fit the plane to
+    :returns the coefficients of the plane along with the error in the format (coefficients, error)
+    :rtype tuple(tuple(float, float, float), float)
+    """
     A = np.c_[pts[:, 0], pts[:, 1], np.ones(pts.shape[0])]
-    C, _, _, _ = scipy.linalg.lstsq(A, pts[:, 2])    # coefficients
-    return C
+    (a, b, c), _, _, _ = scipy.linalg.lstsq(A, pts[:, 2])    # coefficients
 
-
-def get_best_fit_error(pts):
-    A, B, C = get_best_fit(pts)
     errors = np.array([])
 
-    direction = np.array([A, B, -1])
+    direction = np.array([a, b, -1])
     normal = direction / np.linalg.norm(direction)
 
     projections = np.array([])
 
     for pt in pts:
-        dist = np.dot(normal, pt - np.array([0, 0, C]))
+        dist = np.dot(normal, pt - np.array([0, 0, c]))
         projection = pt - dist * normal
         projections = np.append(projections, projection)
         projections = projections.reshape(-1, 3)
         errors = np.append(errors, dist)
         # If this value is close to 0, then the distances are accurate
-        # print(A * projection[0] + B * projection[1] + C - projection[2])
+        # print(A * projection[0] + B * projection[1] + c - projection[2])
 
-    return np.sqrt(sum([error ** 2 for error in errors]) /
+    return (a, b, c), np.sqrt(sum([error ** 2 for error in errors]) /
                                 len(errors))
 
+def get_quadratic_min(pts):
+    """
+    Fits a quadratic equation to `pts` and gets quadratic minimum of equation
+    :param numpy.ndarray pts The points to get the minimum of
+    """
+    new_series, (resid, rank, sv, rcond) = np.polynomial.Polynomial.fit(pts[:, 0], pts[:, 1], 2)[:2]
+    equation = new_series.convert().coef
+    min_x = -equation[1] / (2 * equation[0])
+    return min_x
 
-def get_new_offset(offset_v_error_filename, data_files, polaris=False):
+
+def get_new_offset(offset_v_error_filename, polaris=True, *data_files):
 
     rob = crp.robManipulator()
     rob.LoadRobot(ROB_FILE)
@@ -98,14 +110,14 @@ def get_new_offset(offset_v_error_filename, data_files, polaris=False):
     with open(offset_v_error_filename, 'w') as outfile:
         fk_plot = csv.DictWriter(outfile, fieldnames=["offset", "error"])
         fk_plot.writeheader()
-        for num, offset in enumerate(range(-20, 20, 1)):
+        for num, offset in enumerate(range(-200, 200, 1)):
             fk_pt_set = []
             # Go through each file's `joint_set` and `coords`
             for joint_set, coords in zip(joint_sets, coord_set):
                 data = joint_set.copy()
                 fk_pts = np.array([])
                 for q in data:
-                    q[2] += offset / 1000
+                    q[2] += offset / 10000
                     fk_pts = np.append(fk_pts, rob.ForwardKinematics(q)[:3, 3])
                 fk_pts = fk_pts.reshape((-1, 3))
                 fk_pt_set.append(fk_pts)
@@ -119,57 +131,15 @@ def get_new_offset(offset_v_error_filename, data_files, polaris=False):
                 ])
             else:
                 # Use plane of best fit if palpation is used
-                error = sum([get_best_fit_error(coords_fk) for coords_fk in fk_pt_set])
+                error = sum([get_best_fit_plane(coords_fk)[1] for coords_fk in fk_pt_set])
 
             # Check for minimum error
             if num == 0 or error < min_error:
                 min_error = error
-                min_offset_mm = offset
+                min_offset = offset
 
             # Write plots
             fk_plot.writerow({"offset": offset, "error": error})
-
-    # Make precise outfile
-    root, ext = os.path.splitext(offset_v_error_filename)
-    precise_offset_v_error_filename = root + "_precise" + ext
-
-    with open(precise_offset_v_error_filename, 'w') as outfile:
-        fk_plot = csv.DictWriter(outfile, fieldnames=["offset", "error"])
-        fk_plot.writeheader()
-        for num, offset in enumerate(range(min_offset_mm * 10 - 20,
-                                        min_offset_mm * 10 + 20,
-                                        1)):
-            fk_pt_set = []
-            # Go through each file's `joint_set` and `coords`
-            for joint_set, coords in zip(joint_sets, coord_set):
-                data = joint_set.copy()
-                fk_pts = np.zeros(coords.shape)
-                for i, q in enumerate(data):
-                    q[2] += offset / 10000
-                    fk_pts[i] = rob.ForwardKinematics(q)[:3, 3]
-                fk_pts = fk_pts.reshape((-1, 3))
-                fk_pt_set.append(fk_pts)
-
-            # Get sum of errors of all files
-            if polaris:
-                # Use rigid registration if polaris is used
-                error = sum([
-                    nmrRegistrationRigid(coords_fk, coords_polaris)
-                    for coords_fk, coords_polaris in zip(fk_pt_set, polaris_coord_set)
-                ])
-            else:
-                # Use plane of best fit if palpation is used
-                error = sum([get_best_fit_error(coords_fk) for coords_fk in fk_pt_set])
-
-            # Check for minimum error
-            if num == 0 or error < min_error:
-                min_error = error
-                min_offset_tenth_mm = offset
-
-            # Write plots
-            fk_plot.writerow({"offset": offset, "error": error})
-
-    min_offset = min_offset_tenth_mm / 10000
 
     return min_offset
 
