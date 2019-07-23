@@ -15,7 +15,7 @@ from mpl_toolkits.mplot3d import Axes3D
 import PyKDL
 import rospy
 import dvrk
-from analyze_data import get_new_offset, get_best_fit
+from analyze_data import get_new_offset, get_best_fit_plane
 from marker import Marker
 from cisstNumericalPython import nmrRegistrationRigid
 
@@ -150,7 +150,7 @@ def plot_data(data_file):
             )
         )
 
-        A, B, C = get_best_fit(coords)
+        (A, B, C), error = get_best_fit_plane(coords)
         Z = A*X + B*Y + C
 
     # plot points and fitted surface

@@ -44,19 +44,17 @@ def get_quadratic_min(pts):
     Fits a quadratic equation to `pts` and gets quadratic minimum of equation
     :param numpy.ndarray pts The points to get the minimum of
     """
-    new_series, (resid, rank, sv, rcond) = np.polynomial.Polynomial.fit(pts[:, 0], pts[:, 1], 2)[:2]
-    equation = new_series.convert().coef
+    polyfit = np.polynomial.Polynomial.fit(pts[:, 0], pts[:, 1], 2)
+    import pudb; pudb.set_trace()  # XXX BREAKPOINT
+    equation = polyfit.convert().coef
     min_x = -equation[1] / (2 * equation[0])
     return min_x
 
 
-def get_new_offset(offset_v_error_filename, polaris=True, *data_files):
+def get_new_offset(offset_v_error_filename, data_files, polaris=False):
 
     rob = crp.robManipulator()
     rob.LoadRobot(ROB_FILE)
-
-    min_error = 0
-    min_offset = 0
 
     joint_set = np.array([])
     joint_sets = []
@@ -110,6 +108,7 @@ def get_new_offset(offset_v_error_filename, polaris=True, *data_files):
     with open(offset_v_error_filename, 'w') as outfile:
         fk_plot = csv.DictWriter(outfile, fieldnames=["offset", "error"])
         fk_plot.writeheader()
+        offset_v_error = np.array([])
         for num, offset in enumerate(range(-200, 200, 1)):
             fk_pt_set = []
             # Go through each file's `joint_set` and `coords`
@@ -133,13 +132,12 @@ def get_new_offset(offset_v_error_filename, polaris=True, *data_files):
                 # Use plane of best fit if palpation is used
                 error = sum([get_best_fit_plane(coords_fk)[1] for coords_fk in fk_pt_set])
 
-            # Check for minimum error
-            if num == 0 or error < min_error:
-                min_error = error
-                min_offset = offset
 
             # Write plots
+            offset_v_error = np.append(offset_v_error, np.array([offset, error])).reshape(-1, 2)
             fk_plot.writerow({"offset": offset, "error": error})
+
+        min_offset = get_quadratic_min(offset_v_error)
 
     return min_offset
 
