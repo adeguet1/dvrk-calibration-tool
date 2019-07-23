@@ -38,7 +38,7 @@ def get_best_fit_error(pts):
                                 len(errors))
 
 
-def get_new_offset(offset_v_error_filename, *data_files):
+def get_new_offset(offset_v_error_filename, data_files, polaris=False):
 
     rob = crp.robManipulator()
     rob.LoadRobot(ROB_FILE)
@@ -50,6 +50,10 @@ def get_new_offset(offset_v_error_filename, *data_files):
     joint_sets = []
     coords = np.array([])
     coord_set = []
+
+    if polaris:
+        polaris_coords = np.array([])
+        polaris_coord_set = []
 
     # Accepts n number of data_files
 
@@ -72,12 +76,23 @@ def get_new_offset(offset_v_error_filename, *data_files):
                     float(row["arm_position_z"])
                 ])
                 coords = np.append(coords, coord)
+                if polaris:
+                    polaris_coord = np.array([
+                        float(row["polaris_position_x"]),
+                        float(row["polaris_position_y"]),
+                        float(row["polaris_position_z"])
+                    ])
+                    polaris_coords = np.append(polaris_coords, polaris_coord)
 
         coords = coords.reshape(-1, 3)
-        joint_set = joint_set.reshape(-1, 6)
-
-        joint_sets.append(joint_set)
         coord_set.append(coords)
+
+        joint_set = joint_set.reshape(-1, 6)
+        joint_sets.append(joint_set)
+
+        if polaris:
+            polaris_coords = polaris_coords.reshape(-1, 3)
+            polaris_coord_set.append(polaris_coords)
 
 
     with open(offset_v_error_filename, 'w') as outfile:
@@ -96,7 +111,15 @@ def get_new_offset(offset_v_error_filename, *data_files):
                 fk_pt_set.append(fk_pts)
 
             # Get sum of errors of all files
-            error = sum([get_best_fit_error(fk_pt) for fk_pt in fk_pt_set])
+            if polaris:
+                # Use rigid registration if polaris is used
+                error = sum([
+                    nmrRegistrationRigid(coords_fk, coords_polaris)
+                    for coords_fk, coords_polaris in zip(fk_pt_set, polaris_coord_set)
+                ])
+            else:
+                # Use plane of best fit if palpation is used
+                error = sum([get_best_fit_error(coords_fk) for coords_fk in fk_pt_set])
 
             # Check for minimum error
             if num == 0 or error < min_error:
@@ -128,7 +151,15 @@ def get_new_offset(offset_v_error_filename, *data_files):
                 fk_pt_set.append(fk_pts)
 
             # Get sum of errors of all files
-            error = sum([get_best_fit_error(fk_pt) for fk_pt in fk_pt_set])
+            if polaris:
+                # Use rigid registration if polaris is used
+                error = sum([
+                    nmrRegistrationRigid(coords_fk, coords_polaris)
+                    for coords_fk, coords_polaris in zip(fk_pt_set, polaris_coord_set)
+                ])
+            else:
+                # Use plane of best fit if palpation is used
+                error = sum([get_best_fit_error(coords_fk) for coords_fk in fk_pt_set])
 
             # Check for minimum error
             if num == 0 or error < min_error:
@@ -137,80 +168,6 @@ def get_new_offset(offset_v_error_filename, *data_files):
 
             # Write plots
             fk_plot.writerow({"offset": offset, "error": error})
-
-    min_offset = min_offset_tenth_mm / 10000
-
-    return min_offset
-
-
-def get_new_offset_polaris(data_file=None, error_fk_outfile=None):
-
-    rob = crp.robManipulator()
-    rob.LoadRobot(ROB_FILE)
-
-    min_error = 0
-    min_offset = 0
-
-    joint_set = np.array([])
-    coords = np.array([])
-    polaris_coords = np.array([])
-
-    with open(data_file) as infile:
-        # infile.readline()
-        reader = csv.DictReader(infile)
-        for row in reader:
-            joints = np.array([
-                float(row["joint_{}_position".format(joint_num)])
-                for joint_num in range(6)
-            ])
-            joint_set = np.append(joint_set, joints)
-            coord = np.array([
-                float(row["arm_position_x"]),
-                float(row["arm_position_y"]),
-                float(row["arm_position_z"])
-            ])
-            coords = np.append(coords, coord)
-            polaris_coord = np.array([
-                float(row["polaris_position_x"]),
-                float(row["polaris_position_y"]),
-                float(row["polaris_position_z"])
-            ])
-            polaris_coords = np.append(polaris_coords, polaris_coord)
-
-    coords = coords.reshape(-1, 3)
-    joint_set = joint_set.reshape(-1, 6)
-    polaris_coords = polaris_coords.reshape(-1, 3)
-
-    # Add checker for outfile
-    # unit: millimeter
-    with open(error_fk_outfile, 'w') as outfile:
-        fk_plot = csv.writer(outfile)
-        for num, offset in enumerate(range(-20, 20, 1)):
-            data = joint_set.copy()
-            fk_pts = np.array([])
-            for q in data:
-                q[2] += offset / 1000
-                fk_pts = np.append(fk_pts, rob.ForwardKinematics(q)[:3, 3])
-            fk_pts = fk_pts.reshape((-1, 3))
-            _, error = nmrRegistrationRigid(fk_pts, polaris_coords)
-            if num == 0 or error < min_error:
-                min_error = error
-                min_offset_mm = offset
-            fk_plot.writerow([offset / 1000, error])
-
-    # unit: one tenth of a millimeter
-    for num, offset in enumerate(range(min_offset_mm * 10 - 20,
-                                       min_offset_mm * 10 + 20,
-                                       1)):
-        data = joint_set.copy()
-        fk_pts = np.zeros(coords.shape)
-        for i, q in enumerate(data):
-            q[2] += offset / 10000
-            fk_pts[i] = rob.ForwardKinematics(q)[:3, 3]
-        _, error = nmrRegistrationRigid(fk_pts, polaris_coords)
-        if num == 0 or error < min_error:
-            min_error = error
-            min_offset_tenth_mm = offset
 
     min_offset = min_offset_tenth_mm / 10000
 

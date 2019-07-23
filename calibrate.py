@@ -15,7 +15,7 @@ from mpl_toolkits.mplot3d import Axes3D
 import PyKDL
 import rospy
 import dvrk
-from analyze_data import get_new_offset, get_best_fit, get_new_offset_polaris
+from analyze_data import get_new_offset, get_best_fit
 from marker import Marker
 from cisstNumericalPython import nmrRegistrationRigid
 
@@ -297,10 +297,7 @@ def parse_view(args):
 def parse_analyze(args):
     folder = os.path.dirname(args.input[0])
     offset_v_error_filename = os.path.join(folder, "offset_v_error.csv")
-    if args.polaris:
-        offset = 1000 * get_new_offset_polaris(args.input[0], offset_v_error_filename)
-    else:
-        offset = 1000 * get_new_offset(offset_v_error_filename, *args.input)
+    offset = 1000 * get_new_offset(offset_v_error_filename, args.input, args.polaris)
     if args.write:
         if os.path.exists(args.write):
             print("Writing offset...")
