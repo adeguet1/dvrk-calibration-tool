@@ -200,19 +200,81 @@ class PlaneCalibration(Calibration):
 
         return pos_v_force
 
-    # @classmethod
-    # def run_virtual_palpations(cls, folder):
-    #     if not os.path.isdir(folder):
-    #         print("There must be a folder at {}".format(folder))
-    #         sys.exit(1)
+    @classmethod
+    def run_virtual_palpations(cls, folder, show_graph=False, img_file=None):
+        if not os.path.isdir(folder):
+            print("There must be a folder at {}".format(folder))
+            sys.exit(1)
 
-    #     for palpation_file in os.path.listdir(folder):
-    #         if not palpation_file.startswith("palpation"):
-    #             continue
-    #         with open(os.path.join(folder, palpation_file)) as infile:
-    #             reader = csv.DictReader(infile)
-    #             for row in reader:
+        for palpation_file in os.path.listdir(folder):
+            if not palpation_file.startswith("palpation"):
+                continue
+            with open(os.path.join(folder, palpation_file)) as infile:
+                reader = csv.DictReader(infile)
+                pos_v_force = []
+                for row in reader:
+                    joints = [
+                        float(row["joint_{}_position".format(i)]) for i in range(6)
+                    ]
+                    pos_v_force.append((
+                        [
+                            float(row["arm_position_x"]),
+                            float(row["arm_position_y"]),
+                            float(row["arm_position_z"]),
+                            float(row["wrench"])
+                        ]
+                        + joints
+                    ))
+                    pos, joints = analyze_palpation_threshold(pos_v_force,
+                                                              show_graph=show_graph,
+                                                              img_file=img_file)
+                    data_dict = {
+                        "arm_position_x": pos[0]
+                        "arm_position_y": pos[1]
+                        "arm_position_z": pos[2]
+                    }
 
+                    for joint_num, joint_pos in enumerate(joints):
+                        data_dict.update({"joint_{}_position".format(joint_num): joint_pos})
+
+                    self.data.append(copy(data_dict))
+
+
+    @classmethod
+    def analyze_palpation_threshold(cls, pos_v_force, thresh=None, show_graph=False, img_file=None):
+        """
+        Analyze palpation by searching through `pos_v_force` until the wrench
+        is greater than `thresh`
+        :param numpy.ndarray pos_v_force A numpy array of in the format [[x0, y0, z0, wrench0], [x1, y1, z1, wrench1], ...]
+        :param thresh
+        :type thresh float or int or None
+        """
+        if thresh is None:
+            thresh = cls.SEARCH_THRESH
+
+        # Add checker if wrench ever reaches threshold
+        pos_v_force = np.array(sorted(pos_v_force, key=lambda t:t[2]))
+        for i in range(len(pos_v_force)):
+            if pos_v_force[i, 3] > thresh:
+                # Get average of the closest two pos and joints
+                pos = (pos_v_force[i, :3] + pos_v_force[i - 1, :3]) / 2
+                joints = (pos_v_force[i, 4:] + pos_v_force[i - 1, 4:]) / 2
+                break
+
+        # Plot z vs wrench onto a window, image, or both
+        if show_graph or img_file is not None:
+            # Plot z vs wrench
+            plt.plot(pos_v_force[:, 2], pos_v_force[:, 3], '-', color="red")
+
+            # Plot point at threshold
+            plt.plot(pos[2], thresh)
+
+            if img_file is not None:
+                plt.savefig(img_file)
+            if show_graph:
+                plt.show()
+
+        return pos, joints
 
 
     @classmethod
@@ -298,36 +360,11 @@ class PlaneCalibration(Calibration):
                 # Choose same filename as graph, but instead of csv, do svg
                 img_filename = os.path.splitext(img_file)[0] + ".png"
                 plt.savefig(img_filename)
-            plt.show()
+            if show_graph:
+                plt.show()
 
 
         return pos, joints
-
-    @classmethod
-    def analyze_palpation_threshold(cls, pos_v_force, thresh=None, show_graph=False):
-        """
-        Analyze palpation by searching through `pos_v_force` until the wrench
-        is greater than `thresh`
-        :param numpy.ndarray pos_v_force A numpy array of in the format [[x0, y0, z0, wrench0], [x1, y1, z1, wrench1], ...]
-        :param thresh
-        :type thresh float or int or None
-        """
-        if thresh is None:
-            thresh = cls.SEARCH_THRESH
-
-        # Sort pos_v_force based on z-position
-        pos_v_force = np.array(sorted(pos_v_force, key=lambda t:t[2]))
-        # pos_v_force = [[x0, y0, z0, wrench0], [x1, y1, z1, wrench1], ...]
-        for idx in pos_v_force:
-
-            wrench = pos_v_force[idx, 3]
-
-            if wrench > thresh:
-                # Get average coords of current point and previous point
-                pos = ((PyKDL.Vector(*pos_v_force[idx, :3])
-                        + PyKDL.Vector(*pos_v_force[idx - 1, :3]))
-                      / 2)
-                return pos
 
     @staticmethod
     def derivative(p1, p2):
