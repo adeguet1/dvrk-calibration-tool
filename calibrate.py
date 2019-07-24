@@ -288,13 +288,25 @@ def parse_view(args):
                 offsets.append(float(row["offset"]))
                 errors.append(float(row["error"]))
             x = np.arange(offsets[0], offsets[-1] + 1, 1)
-            polyfit = np.polynomial.Polynomial.fit(offsets, errors, 2)
-            equation = polyfit.convert().coef[::-1]
-            print("Quadratic fit: {}x^2 + {}x + {}".format(*equation))
-            min_x = -equation[1] / (2 * equation[0])
+            polyfit = np.polynomial.Polynomial.fit(offsets, errors, 20)
+            equation = polyfit.convert().coef
+            # print("Quadratic fit: {}x^2 + {}x + {}".format(*equation))
+            print(equation)
+            # min_y = equation[0] * min_x ** 2 + equation[1] * min_x + equation[2]
+            y = 0
+            for e, c in enumerate(equation):
+                y += c * x ** e
+            # y = equation[0] * x ** 2 + equation[1] * x + equation[2]
+            min_y = y[0]
+            min_x = x[0]
+            for a, b in zip(x, y):
+                if b < min_y:
+                    min_y = b
+                    min_x = a
+            print(min_x)
             print("Minimum offset: {}mm".format(min_x / 10))
-            min_y = equation[0] * min_x ** 2 + equation[1] * min_x + equation[2]
-            y = equation[0] * x ** 2 + equation[1] * x + equation[2]
+            print("Actual min: {}mm".format(offsets[errors.index(min(errors))] / 10))
+
             # plt.plot(offsets, errors, '-', color="red")
             plt.plot(x, y, '-', color="blue")
             plt.scatter(offsets, errors, s=10, color="green")

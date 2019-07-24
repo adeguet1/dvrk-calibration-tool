@@ -139,8 +139,8 @@ def get_new_offset(offset_v_error_filename, data_files, polaris=False):
             offset_v_error = np.append(offset_v_error, np.array([offset, error])).reshape(-1, 2)
             fk_plot.writerow({"offset": offset, "error": error})
 
-        # print(offset_v_error[:, 0])
-        min_offset = get_quadratic_min(offset_v_error)
+        # min_offset = get_quadratic_min(offset_v_error)
+        min_offset = offset_v_error[(np.where(offset_v_error[:, 1] == np.amin(offset_v_error[:, 1]))[0][0]), 0]
 
     return min_offset / 10000
 
