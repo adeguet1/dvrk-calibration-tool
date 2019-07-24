@@ -16,6 +16,8 @@ class PlaneCalibration(Calibration):
     PALPATE_THRESH = 2.5
     MIN_RESIDUAL_DIFF = 0.008
 
+    SEARCH_THRESH = 1.4
+
     def get_corners(self):
         "Gets input from user to get three corners of the plane"
         pts = []
@@ -75,10 +77,12 @@ class PlaneCalibration(Calibration):
 
 
 
-                pos = self.analyze_palpation(pos_v_force, show_graph=False)
+                pos, joints = self.analyze_palpation(pos_v_force, show_graph=False)
                 if pos is None:
                     rospy.logwarn("Didn't get enough data, disregarding point and continuing to next")
                     continue
+
+                print("Using {} instead of {}".format(joints, self.arm.get_current_joint_position()))
 
 
 
@@ -88,7 +92,7 @@ class PlaneCalibration(Calibration):
                     "arm_position_z": pos[2],
                 }
 
-                for joint_num, joint_pos in enumerate(self.arm.get_current_joint_position()):
+                for joint_num, joint_pos in enumerate(joints):
                     data_dict.update({"joint_{}_position".format(joint_num): joint_pos})
 
                 self.data.append(copy(data_dict))
@@ -146,7 +150,12 @@ class PlaneCalibration(Calibration):
             time.sleep(0.4)
             force = self.arm.get_current_wrench_body()[2]
             pos = self.arm.get_current_position().p
-            pos_v_force.append([pos[0], pos[1], pos[2], force])
+            joints = self.arm.get_current_joint_position()
+            pos_v_force.append([
+                pos[0], pos[1], pos[2],
+                force]
+                + list(joints)
+            )
             if abs(force) >= self.PALPATE_THRESH:
                 break
             elif i == STEPS_TENTH_MM - 1:
@@ -156,17 +165,33 @@ class PlaneCalibration(Calibration):
         print(time.time() - oldtime)
 
         outfile = open(output_file, 'w')
-        fieldnames = ["x-position", "y-position", "z-position", "wrench"]
+        fieldnames = [
+            "joint_{}_position".format(i)
+            for i in range(6)
+        ]
+        fieldnames += [
+            "x-position",
+            "y-position",
+            "z-position",
+            "wrench"
+        ]
         writer = csv.DictWriter(outfile, fieldnames=fieldnames)
-        csv_dict = [
-            {
+        csv_dict = []
+        for i, items in enumerate(pos_v_force):
+            x, y, z, f = items[:4]
+            joints = items[4:]
+            csv_dict.append({
+                "joint_0_position": joints[0],
+                "joint_1_position": joints[1],
+                "joint_2_position": joints[2],
+                "joint_3_position": joints[3],
+                "joint_4_position": joints[4],
+                "joint_5_position": joints[5],
                 "x-position": x,
                 "y-position": y,
                 "z-position": z,
                 "wrench": f
-            }
-            for i, (x, y, z, f) in enumerate(pos_v_force)
-        ]
+            })
         writer.writeheader()
         writer.writerows(csv_dict)
 
@@ -175,8 +200,23 @@ class PlaneCalibration(Calibration):
 
         return pos_v_force
 
-    @staticmethod
-    def analyze_palpation(pos_v_force, show_graph=False):
+    # @classmethod
+    # def run_virtual_palpations(cls, folder):
+    #     if not os.path.isdir(folder):
+    #         print("There must be a folder at {}".format(folder))
+    #         sys.exit(1)
+
+    #     for palpation_file in os.path.listdir(folder):
+    #         if not palpation_file.startswith("palpation"):
+    #             continue
+    #         with open(os.path.join(folder, palpation_file)) as infile:
+    #             reader = csv.DictReader(infile)
+    #             for row in reader:
+
+
+
+    @classmethod
+    def analyze_palpation(cls, pos_v_force, show_graph=False, img_file=None):
         data_moving = []
         data_contact = []
 
@@ -214,7 +254,7 @@ class PlaneCalibration(Calibration):
 
         # Remove points that negatively contribute towards error of the line
         for i in range(10):
-            if old_residual - new_residual < PlaneCalibration.MIN_RESIDUAL_DIFF:
+            if old_residual - new_residual < cls.MIN_RESIDUAL_DIFF:
                 # If residual difference is less than MIN_RESIDUAL_DIFF, stop removing points
                 break
             if i == 0:
@@ -230,6 +270,7 @@ class PlaneCalibration(Calibration):
         # for contact and the equation for movement
         pos = np.zeros((3,))
         pos[2] = (contact_eqn[1] - moving_eqn[1])/(moving_eqn[0] - contact_eqn[0])
+        joints = np.zeros((6,))
 
 
         # Find average of the two points next to the z value
@@ -237,9 +278,10 @@ class PlaneCalibration(Calibration):
             if pos_v_force[i-1][2] <= pos[2] <= pt[2]:
                 pos[0] = (pt[0] + pos_v_force[i-1][0])/2
                 pos[1] = (pt[1] + pos_v_force[i-1][1])/2
+                joints = (pt[4:] + pos_v_force[i-1][4:])/2
                 break
 
-        if show_graph:
+        if show_graph or img_file is not None:
             # Plot best fit lines
             plt.plot(data_moving[:, 0], moving_eqn[0] * data_moving[:, 0] + moving_eqn[1], '-', color='red')
             plt.plot(data_contact[:, 0], contact_eqn[0] * data_contact[:, 0] + contact_eqn[1], '-', color='blue')
@@ -252,9 +294,40 @@ class PlaneCalibration(Calibration):
             plt.legend()
             plt.xlabel("Z")
             plt.ylabel("Wrench")
+            if img_file is not None:
+                # Choose same filename as graph, but instead of csv, do svg
+                img_filename = os.path.splitext(img_file)[0] + ".png"
+                plt.savefig(img_filename)
             plt.show()
 
-        return pos
+
+        return pos, joints
+
+    @classmethod
+    def analyze_palpation_threshold(cls, pos_v_force, thresh=None, show_graph=False):
+        """
+        Analyze palpation by searching through `pos_v_force` until the wrench
+        is greater than `thresh`
+        :param numpy.ndarray pos_v_force A numpy array of in the format [[x0, y0, z0, wrench0], [x1, y1, z1, wrench1], ...]
+        :param thresh
+        :type thresh float or int or None
+        """
+        if thresh is None:
+            thresh = cls.SEARCH_THRESH
+
+        # Sort pos_v_force based on z-position
+        pos_v_force = np.array(sorted(pos_v_force, key=lambda t:t[2]))
+        # pos_v_force = [[x0, y0, z0, wrench0], [x1, y1, z1, wrench1], ...]
+        for idx in pos_v_force:
+
+            wrench = pos_v_force[idx, 3]
+
+            if wrench > thresh:
+                # Get average coords of current point and previous point
+                pos = ((PyKDL.Vector(*pos_v_force[idx, :3])
+                        + PyKDL.Vector(*pos_v_force[idx - 1, :3]))
+                      / 2)
+                return pos
 
     @staticmethod
     def derivative(p1, p2):

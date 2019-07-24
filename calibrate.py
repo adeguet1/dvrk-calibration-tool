@@ -15,7 +15,7 @@ from mpl_toolkits.mplot3d import Axes3D
 import PyKDL
 import rospy
 import dvrk
-from analyze_data import get_new_offset, get_best_fit_plane, get_quadratic_min
+from analyze_data import get_offset_v_error, get_best_fit_plane, get_poly_min
 from marker import Marker
 from cisstNumericalPython import nmrRegistrationRigid
 
@@ -87,7 +87,7 @@ def choose_filename(fpath):
     return new_fname
 
 
-def plot_data(data_file):
+def plot_data(data_file, save=True):
     "Plots the data from the csv file data_file"
 
     coords = np.array([])
@@ -168,20 +168,18 @@ def plot_data(data_file):
     plt.ylabel('Y')
     ax.set_zlabel('Z')
     ax.legend()
+    if save:
+        # Choose same filename as graph, but instead of csv, do svg
+        img_filename = os.path.splitext(data_file)[0] + ".png"
+        plt.savefig(img_filename)
     plt.show()
 
 
 def parse_record(args):
-    # pts = [
-    #     PyKDL.Vector(0.04969137179347108, 0.12200283317260341, -0.19),
-    #     PyKDL.Vector(0.09269885200354012, -0.06284151552138104, -0.19),
-    #     PyKDL.Vector(-0.06045055029036737, -0.11093816039641696, -0.19)
-
-    # ]
     pts = [
-        PyKDL.Vector(0.032352239987663386, 0.09112554778646448, -0.1552123241995624),
-        PyKDL.Vector(0.07298771358146197, -0.05720891999824999, -0.16137494511349101),
-        PyKDL.Vector(-0.0430777628612891, -0.09345770839964689, -0.15956836746933412),
+        PyKDL.Vector(0.06374846990290427, 0.05505725086391641, -0.15585194627277937),
+        PyKDL.Vector(0.0530533084000882, -0.08832456079637394, -0.16132631689055202),
+        PyKDL.Vector(-0.06385800414598963, -0.0854254024006429, -0.15375787892199785)
     ]
     pts = [PyKDL.Frame(Calibration.ROT_MATRIX, pt) for pt in pts]
     if args.polaris:
@@ -208,7 +206,7 @@ def parse_record(args):
         calibration = PlaneCalibration(args.arm)
 
         if not args.single_palpation:
-            pts = calibration.get_corners()
+            # pts = calibration.get_corners()
             goal = copy(pts[2])
             goal.p[2] += 0.05
             calibration.arm.move(goal)
@@ -265,7 +263,7 @@ def parse_view(args):
                         float(row["z-position"]),
                         float(row["wrench"]),
                     ])
-                PlaneCalibration.analyze_palpation(pos_v_force, show_graph=True)
+                PlaneCalibration.analyze_palpation(pos_v_force, show_graph=True, save=args.save)
     elif os.path.basename(args.input).startswith("palpation"):
         with open(args.input) as csvfile:
             reader = csv.DictReader(csvfile)
@@ -278,48 +276,51 @@ def parse_view(args):
                     float(row["z-position"]),
                     float(row["wrench"]),
                 ])
-            PlaneCalibration.analyze_palpation(pos_v_force, show_graph=True)
+            PlaneCalibration.analyze_palpation(pos_v_force, show_graph=True, save=args.save)
     elif os.path.basename(args.input).startswith("offset_v_error"):
         with open(args.input) as csvfile:
             reader = csv.DictReader(csvfile)
-            offsets = []
-            errors = []
+            offset_v_error = np.array([])
             for row in reader:
-                offsets.append(float(row["offset"]))
-                errors.append(float(row["error"]))
-            x = np.arange(offsets[0], offsets[-1] + 1, 1)
-            polyfit = np.polynomial.Polynomial.fit(offsets, errors, 20)
-            equation = polyfit.convert().coef
-            # print("Quadratic fit: {}x^2 + {}x + {}".format(*equation))
-            print(equation)
-            # min_y = equation[0] * min_x ** 2 + equation[1] * min_x + equation[2]
-            y = 0
+                offset_v_error = np.append(
+                    offset_v_error,
+                    np.array([
+                        float(row["offset"]),
+                        float(row["error"])
+                    ])
+                )
+            offset_v_error = offset_v_error.reshape(-1, 2)
+            x = np.arange(offset_v_error[0, 0], offset_v_error[-1, 0] + 0.0001, 0.0001)
+            equation, (min_x, min_y) = get_poly_min(offset_v_error, 2)
+            y = np.zeros(x.shape)
             for e, c in enumerate(equation):
                 y += c * x ** e
-            # y = equation[0] * x ** 2 + equation[1] * x + equation[2]
-            min_y = y[0]
-            min_x = x[0]
-            for a, b in zip(x, y):
-                if b < min_y:
-                    min_y = b
-                    min_x = a
-            print(min_x)
-            print("Minimum offset: {}mm".format(min_x / 10))
-            print("Actual min: {}mm".format(offsets[errors.index(min(errors))] / 10))
+            actual_min = 1000 * offset_v_error[(np.where(offset_v_error[:, 1] == np.amin(offset_v_error[:, 1]))[0][0]), 0]
+            print("Minimum offset: {}mm".format(min_x * 1000))
+            print("Actual min: {}mm".format(actual_min))
 
-            # plt.plot(offsets, errors, '-', color="red")
             plt.plot(x, y, '-', color="blue")
-            plt.scatter(offsets, errors, s=10, color="green")
+            plt.scatter(offset_v_error[:, 0], offset_v_error[:, 1], s=10, color="green")
             plt.plot(min_x, min_y, 'o', color="purple")
+
+            # Save image to file
+            if args.save:
+                # Choose same filename as graph, but instead of csv, do svg
+                img_filename = os.path.splitext(args.input)[0] + ".png"
+                plt.savefig(img_filename)
             plt.show()
     else:
-        plot_data(args.input)
+        plot_data(args.input, save=args.save)
+
 
 
 def parse_analyze(args):
     folder = os.path.dirname(args.input[0])
     offset_v_error_filename = os.path.join(folder, "offset_v_error.csv")
-    offset = 1000 * get_new_offset(offset_v_error_filename, args.input, args.polaris)
+    offset_v_error = get_offset_v_error(offset_v_error_filename, args.input, args.polaris)
+    # min_offset = get_quadratic_min(offset_v_error)
+    offset = 1000 * offset_v_error[(np.where(offset_v_error[:, 1] == np.amin(offset_v_error[:, 1]))[0][0]), 0]
+
     if args.write:
         if os.path.exists(args.write):
             print("Writing offset...")
@@ -389,6 +390,11 @@ if __name__ == "__main__":
     parser_view = subparser.add_parser("view", help="view outputted data")
     parser_view.add_argument("input", help="data to read from")
     parser_view.set_defaults(func=parse_view)
+    parser_view.add_argument(
+        "--save", "-s",
+        help="save to image",
+        action="store_true"
+    )
 
     parser_analyze = subparser.add_parser(
         "analyze",

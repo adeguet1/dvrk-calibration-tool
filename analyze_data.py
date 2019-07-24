@@ -39,18 +39,24 @@ def get_best_fit_plane(pts):
     return (a, b, c), np.sqrt(sum([error ** 2 for error in errors]) /
                                 len(errors))
 
-def get_quadratic_min(pts):
+def get_poly_min(pts, deg=2):
     """
     Fits a quadratic equation to `pts` and gets quadratic minimum of equation
     :param numpy.ndarray pts The points to get the minimum of
     """
-    polyfit = np.polynomial.Polynomial.fit(pts[:, 0], pts[:, 1], 2)
-    equation = polyfit.convert().coef[::-1]
-    min_x = -equation[1] / (2 * equation[0])
-    return min_x
+    polyfit = np.polynomial.Polynomial.fit(pts[:, 0], pts[:, 1], deg)
+    equation = polyfit.convert().coef
+    x = np.arange(pts[0, 0], pts[-1, 0] + 0.0001, 0.0001)
+    y = np.zeros(x.shape)
+    for exp, coef in enumerate(equation):
+        y += coef * x ** exp
+    min_y = np.amin(y)
+    min_x = x[np.where(y == min_y)][0]
+
+    return equation, np.array([min_x, min_y])
 
 
-def get_new_offset(offset_v_error_filename, data_files, polaris=False):
+def get_offset_v_error(offset_v_error_filename, data_files, polaris=False):
 
     rob = crp.robManipulator()
     rob.LoadRobot(ROB_FILE)
@@ -127,7 +133,7 @@ def get_new_offset(offset_v_error_filename, data_files, polaris=False):
             if polaris:
                 # Use rigid registration if polaris is used
                 error = sum([
-                    nmrRegistrationRigid(coords_fk, coords_polaris)
+                    nmrRegistrationRigid(coords_fk, coords_polaris)[1]
                     for coords_fk, coords_polaris in zip(fk_pt_set, polaris_coord_set)
                 ])
             else:
@@ -136,11 +142,15 @@ def get_new_offset(offset_v_error_filename, data_files, polaris=False):
 
 
             # Write plots
-            offset_v_error = np.append(offset_v_error, np.array([offset, error])).reshape(-1, 2)
-            fk_plot.writerow({"offset": offset, "error": error})
+            offset_v_error = np.append(offset_v_error, np.array([offset, error]))
+            fk_plot.writerow({"offset": offset / 10000, "error": error})
 
-        # min_offset = get_quadratic_min(offset_v_error)
-        min_offset = offset_v_error[(np.where(offset_v_error[:, 1] == np.amin(offset_v_error[:, 1]))[0][0]), 0]
 
-    return min_offset / 10000
+    offset_v_error = offset_v_error.reshape(-1, 2)
+
+    # Convert from tenths of a millimeter to meters
+    offset_v_error[:, 0] /= 10000
+
+    return offset_v_error
+
 
