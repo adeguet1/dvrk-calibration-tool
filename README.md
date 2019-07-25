@@ -19,6 +19,8 @@ To record the points using a Polaris, run:
 ./calibrate.py record -p PSM3
 ```
 
+This command creates a folder in the format `{ARM_NAME}_{DATE}_{TIME}`, which stores all the values for the calibration
+
 After running the command, if you want to view the resulting plane from the palpations, run:
 ```bash
 ./calibrate.py view data/path_to_folder/plane.csv
