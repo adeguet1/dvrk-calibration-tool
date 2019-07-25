@@ -31,6 +31,7 @@ class Calibration(object):
         print("initializing calibration for", robot_name)
         print("have a flat surface below the robot")
         self.data = []
+        self.polaris = False
         self.info = {}
         # Add checker for directory
         strdate = time.strftime("%Y-%m-%d_%H-%M-%S")
@@ -65,7 +66,13 @@ class Calibration(object):
 
     def output_to_csv(self):
         "Outputs contents of self.data to fpath"
-        with open(os.path.join(self.folder, "plane.csv"), 'w') as csvfile:
+        filename = "plane.csv" if not self.polaris else "polaris_point_cloud.csv"
+        self.info["polaris"] = self.polaris
+        with open(os.path.join(self.folder, "info.txt"), 'w') as infofile:
+            for key, val in self.info.iteritems():
+                infofile.write("{}: {}\n".format(key, val))
+
+        with open(os.path.join(self.folder, filename), 'w') as csvfile:
             writer = csv.DictWriter(csvfile, fieldnames=self.data[0].keys())
             writer.writeheader()
             for row in self.data:
@@ -194,13 +201,13 @@ def parse_record(args):
         calibration.record_joints(joint_set, verbose=args.verbose)
         calibration.output_to_csv()
         print("Run `./calibrate.py view {}` to view the recorded data points,"
-                .format(os.path.join(calibration.folder, "plane.csv")))
+                .format(os.path.join(calibration.folder, "polars_point_cloud.csv")))
         print("run `./calibrate.py analyze -p {}` to analyze the recorded data points, or"
-                .format(os.path.join(calibration.folder, "plane.csv")))
+                .format(os.path.join(calibration.folder, "polars_point_cloud.csv")))
         print("run `./calibrate.py analyze -p {} -w "
                 "~/catkin_ws/src/cisst-saw/sawIntuitiveResearchKit/share/jhu-daVinci/"
                 "sawRobotIO1394-PSM3-28613.xml` to analyze and write the resulting offset"
-                .format(os.path.join(calibration.folder, "plane.csv")))
+                .format(os.path.join(calibration.folder, "polars_point_cloud.csv")))
     else:
         from calibrate_plane import PlaneCalibration
         calibration = PlaneCalibration(args.arm)
@@ -235,16 +242,17 @@ def parse_record(args):
             calibration.arm.move(goal)
             goal.p[2] -= 0.045
             calibration.arm.move(goal)
-            pos_v_force = calibration.palpate(os.path.join(calibration.folder, "single_palpation.csv"))
-            if not pos_v_force:
+            pos_v_wrench = calibration.palpate(os.path.join(calibration.folder, "single_palpation.csv"))
+            if not pos_v_wrench:
                 rospy.logerr("Didn't reach surface; closing program")
                 sys.exit(1)
-            print("Using {}".format(calibration.analyze_palpation(pos_v_force, show_graph=True)))
+            print("Using {}".format(calibration.analyze_palpation(pos_v_wrench, show_graph=True)))
 
 
 
 def parse_view(args):
     if os.path.isdir(args.input):
+        # Display entire set of palpations
         from calibrate_plane import PlaneCalibration
         files = [
             os.path.join(args.input, filename)
@@ -255,29 +263,32 @@ def parse_view(args):
             with open(filename) as csvfile:
                 reader = csv.DictReader(csvfile)
                 print("Reading {}".format(filename))
-                pos_v_force = []
+                pos_v_wrench = []
                 for row in reader:
-                    pos_v_force.append([
+                    pos_v_wrench.append([
                         float(row["x-position"]),
                         float(row["y-position"]),
                         float(row["z-position"]),
                         float(row["wrench"]),
                     ])
-                PlaneCalibration.analyze_palpation(pos_v_force, show_graph=True, save=args.save)
+                PlaneCalibration.analyze_palpation(pos_v_wrench, show_graph=True, save=args.save)
     elif os.path.basename(args.input).startswith("palpation"):
+        # Display singular palpation
         with open(args.input) as csvfile:
             reader = csv.DictReader(csvfile)
             print("Reading {}".format(filename))
-            pos_v_force = []
+            pos_v_wrench = []
             for row in reader:
-                pos_v_force.append([
+                pos_v_wrench.append([
                     float(row["x-position"]),
                     float(row["y-position"]),
                     float(row["z-position"]),
                     float(row["wrench"]),
                 ])
-            PlaneCalibration.analyze_palpation(pos_v_force, show_graph=True, save=args.save)
+            PlaneCalibration.analyze_palpation(pos_v_wrench, show_graph=True, save=args.save)
     elif os.path.basename(args.input).startswith("offset_v_error"):
+        # Display offset_v_error graph
+
         with open(args.input) as csvfile:
             reader = csv.DictReader(csvfile)
             offset_v_error = np.array([])
@@ -290,13 +301,19 @@ def parse_view(args):
                     ])
                 )
             offset_v_error = offset_v_error.reshape(-1, 2)
-            x = np.arange(offset_v_error[0, 0], offset_v_error[-1, 0] + 0.0001, 0.0001)
+            x = np.arange(offset_v_error[0, 0], offset_v_error[-1, 0] + 1, 1)
             equation, (min_x, min_y) = get_poly_min(offset_v_error, 2)
             y = np.zeros(x.shape)
             for e, c in enumerate(equation):
                 y += c * x ** e
-            actual_min = 1000 * offset_v_error[(np.where(offset_v_error[:, 1] == np.amin(offset_v_error[:, 1]))[0][0]), 0]
-            print("Minimum offset: {}mm".format(min_x * 1000))
+
+
+            # Get index of minimum of error in `offset_v_error`
+            min_idx = np.where(offset_v_error[:, 1] == np.amin(offset_v_error[:, 1]))[0][0]
+            # Use index to get offset, then convert from tenths of mm to mm
+            actual_min = offset_v_error[min_idx, 0] / 10
+
+            print("Minimum offset: {}mm".format(min_x / 10)) # convert from tenths of mm to mm
             print("Actual min: {}mm".format(actual_min))
 
             plt.plot(x, y, '-', color="blue")
@@ -308,6 +325,7 @@ def parse_view(args):
                 # Choose same filename as graph, but instead of csv, do svg
                 img_filename = os.path.splitext(args.input)[0] + ".png"
                 plt.savefig(img_filename)
+
             plt.show()
     else:
         plot_data(args.input, save=args.save)
@@ -316,10 +334,15 @@ def parse_view(args):
 
 def parse_analyze(args):
     folder = os.path.dirname(args.input[0])
+    if os.path.basename(args.input[0]) == "polaris_point_cloud.csv":
+        polaris = True
+    elif os.path.basename(args.input[0]) == "plane.csv":
+        polaris = False
     offset_v_error_filename = os.path.join(folder, "offset_v_error.csv")
-    offset_v_error = get_offset_v_error(offset_v_error_filename, args.input, args.polaris)
+
+    offset_v_error = get_offset_v_error(offset_v_error_filename, args.input, polaris=polaris)
     # min_offset = get_quadratic_min(offset_v_error)
-    offset = 1000 * offset_v_error[(np.where(offset_v_error[:, 1] == np.amin(offset_v_error[:, 1]))[0][0]), 0]
+    offset = offset_v_error[(np.where(offset_v_error[:, 1] == np.amin(offset_v_error[:, 1]))[0][0]), 0] / 10
 
     if args.write:
         if os.path.exists(args.write):
@@ -409,12 +432,6 @@ if __name__ == "__main__":
         "-o", "--output",
         help="output for the graph of offset versus error "
         "(filename automatically increments)",
-    )
-    parser_analyze.add_argument(
-        "-p", "--polaris",
-        help="use polaris",
-        default=False,
-        action="store_true"
     )
     parser_analyze.add_argument(
         "-n", "--no-output",

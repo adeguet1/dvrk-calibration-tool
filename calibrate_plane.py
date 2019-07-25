@@ -39,18 +39,19 @@ class PlaneCalibration(Calibration):
             return False
 
         self.info["points"] = [pt.p for pt in pts]
-        self.info["polaris"] = False
 
 
         goal = PyKDL.Frame(self.ROT_MATRIX)
-        print("Using points {}, {}, and {}".format(*[tuple(pt.p) for pt in pts]))
+        # print("Using points {}, {}, and {}".format(*[tuple(pt.p) for pt in pts]))
 
         for i in range(nsamples):
+            # For each row, store 2 vectors as the right side and left side
             rightside = pts[1].p + i / (nsamples - 1) * (pts[2].p - pts[1].p)
             leftside = pts[0].p + i / (nsamples - 1) * (pts[2].p - pts[1].p)
             print("moving arm to row ", i)
             for j in range(nsamples):
                 print("\tmoving arm to column ", j)
+                # Move from right side to left side or vice versa in steps
                 goal = PyKDL.Frame(self.ROT_MATRIX)
                 if i % 2 == 0:
                     goal.p = leftside + (j / (nsamples - 1) *
@@ -58,26 +59,31 @@ class PlaneCalibration(Calibration):
                 else:
                     goal.p = rightside + (j / (nsamples - 1) *
                                           (leftside - rightside))
+
+                # Move arm up before starting palpation
                 goal.p[2] += 0.01
                 self.arm.move(goal)
+
+                # Store palpation in a csv file
                 palpate_file = os.path.join(
                     self.folder,
                     "palpation_{}_{}.csv".format(i, j)
                 )
 
-                pos_v_force = self.palpate(palpate_file)
+                # Returns a numpy array containing the position, joint angles vs the wrench
+                pos_v_wrench = self.palpate(palpate_file)
 
+                # Move back up after palpation to prevent dragging against the surface
                 goal = self.arm.get_desired_position()
                 goal.p[2] += 0.02
                 self.arm.move(goal)
 
-                if not pos_v_force:
+                if not pos_v_wrench:
                     rospy.logerr("Didn't reach surface. Closing program")
                     sys.exit(1)
 
-
-
-                pos, joints = self.analyze_palpation(pos_v_force, show_graph=False)
+                # Analyze palpation to get x, y, z, and joint angles
+                pos, joints = self.analyze_palpation(pos_v_wrench, show_graph=False)
                 if pos is None:
                     rospy.logwarn("Didn't get enough data, disregarding point and continuing to next")
                     continue
@@ -92,6 +98,8 @@ class PlaneCalibration(Calibration):
                     "arm_position_z": pos[2],
                 }
 
+
+                # Add joint positions to `data_dict`
                 for joint_num, joint_pos in enumerate(joints):
                     data_dict.update({"joint_{}_position".format(joint_num): joint_pos})
 
@@ -104,15 +112,15 @@ class PlaneCalibration(Calibration):
         print(rospy.get_caller_id(), '<- calibration complete')
 
     def palpate(self, output_file):
-        """Move down until forces act on the motor in the z direction,
+        """Move down until wrenchs act on the motor in the z direction,
         then record position, joints, and wrench body of the robot"""
 
         time.sleep(0.2)
         initial = self.arm.get_desired_position()
         goal = self.arm.get_desired_position()
 
-        # Store z-position and force in pos_v_force
-        pos_v_force = []
+        # Store z-position and wrench in pos_v_wrench
+        pos_v_wrench = []
         MM = 0.001
         TENTH_MM = 0.0001
 
@@ -141,28 +149,29 @@ class PlaneCalibration(Calibration):
         time.sleep(0.5)
         self.arm.move(goal)
 
-        print(time.time() - oldtime)
+        # print(time.time() - oldtime)
         oldtime = time.time()
 
         for i in range(STEPS_TENTH_MM): # in tenths of millimeters
             goal.p[2] -= TENTH_MM
             self.arm.move(goal)
             time.sleep(0.4)
-            force = self.arm.get_current_wrench_body()[2]
+            wrench = self.arm.get_current_wrench_body()[2]
             pos = self.arm.get_current_position().p
             joints = self.arm.get_current_joint_position()
-            pos_v_force.append([
+            # Add position, wrench
+            pos_v_wrench.append([
                 pos[0], pos[1], pos[2],
-                force]
+                wrench]
                 + list(joints)
             )
-            if abs(force) >= self.PALPATE_THRESH:
+            if abs(wrench) >= self.PALPATE_THRESH:
                 break
             elif i == STEPS_TENTH_MM - 1:
                 print("wasn't able to recheck")
                 return False
 
-        print(time.time() - oldtime)
+        # print(time.time() - oldtime)
 
         outfile = open(output_file, 'w')
         fieldnames = [
@@ -177,7 +186,7 @@ class PlaneCalibration(Calibration):
         ]
         writer = csv.DictWriter(outfile, fieldnames=fieldnames)
         csv_dict = []
-        for i, items in enumerate(pos_v_force):
+        for i, items in enumerate(pos_v_wrench):
             x, y, z, f = items[:4]
             joints = items[4:]
             csv_dict.append({
@@ -198,7 +207,7 @@ class PlaneCalibration(Calibration):
         self.arm.move(initial)
 
 
-        return pos_v_force
+        return pos_v_wrench
 
     @classmethod
     def run_virtual_palpations(cls, folder, show_graph=False, img_file=None):
@@ -207,16 +216,18 @@ class PlaneCalibration(Calibration):
             sys.exit(1)
 
         for palpation_file in os.path.listdir(folder):
+            # Ignore non-palpation files, e. g. "offset_v_error.csv", "plane.csv", etc.
             if not palpation_file.startswith("palpation"):
                 continue
+
             with open(os.path.join(folder, palpation_file)) as infile:
                 reader = csv.DictReader(infile)
-                pos_v_force = []
+                pos_v_wrench = []
                 for row in reader:
                     joints = [
                         float(row["joint_{}_position".format(i)]) for i in range(6)
                     ]
-                    pos_v_force.append((
+                    pos_v_wrench.append((
                         [
                             float(row["arm_position_x"]),
                             float(row["arm_position_y"]),
@@ -225,13 +236,13 @@ class PlaneCalibration(Calibration):
                         ]
                         + joints
                     ))
-                    pos, joints = analyze_palpation_threshold(pos_v_force,
-                                                              show_graph=show_graph,
-                                                              img_file=img_file)
+                    pos, joints = cls.analyze_palpation_threshold(pos_v_wrench,
+                                                                  show_graph=show_graph,
+                                                                  img_file=img_file)
                     data_dict = {
-                        "arm_position_x": pos[0]
-                        "arm_position_y": pos[1]
-                        "arm_position_z": pos[2]
+                        "arm_position_x": pos[0],
+                        "arm_position_y": pos[1],
+                        "arm_position_z": pos[2],
                     }
 
                     for joint_num, joint_pos in enumerate(joints):
@@ -241,11 +252,11 @@ class PlaneCalibration(Calibration):
 
 
     @classmethod
-    def analyze_palpation_threshold(cls, pos_v_force, thresh=None, show_graph=False, img_file=None):
+    def analyze_palpation_threshold(cls, pos_v_wrench, thresh=None, show_graph=False, img_file=None):
         """
-        Analyze palpation by searching through `pos_v_force` until the wrench
+        Analyze palpation by searching through `pos_v_wrench` until the wrench
         is greater than `thresh`
-        :param numpy.ndarray pos_v_force A numpy array of in the format [[x0, y0, z0, wrench0], [x1, y1, z1, wrench1], ...]
+        :param numpy.ndarray pos_v_wrench A numpy array of in the format [[x0, y0, z0, wrench0], [x1, y1, z1, wrench1], ...]
         :param thresh
         :type thresh float or int or None
         """
@@ -253,18 +264,18 @@ class PlaneCalibration(Calibration):
             thresh = cls.SEARCH_THRESH
 
         # Add checker if wrench ever reaches threshold
-        pos_v_force = np.array(sorted(pos_v_force, key=lambda t:t[2]))
-        for i in range(len(pos_v_force)):
-            if pos_v_force[i, 3] > thresh:
+        pos_v_wrench = np.array(sorted(pos_v_wrench, key=lambda t:t[2]))
+        for i in range(len(pos_v_wrench)):
+            if pos_v_wrench[i, 3] > thresh:
                 # Get average of the closest two pos and joints
-                pos = (pos_v_force[i, :3] + pos_v_force[i - 1, :3]) / 2
-                joints = (pos_v_force[i, 4:] + pos_v_force[i - 1, 4:]) / 2
+                pos = (pos_v_wrench[i, :3] + pos_v_wrench[i-1, :3]) / 2
+                joints = (pos_v_wrench[i, 4:] + pos_v_wrench[i-1, 4:]) / 2
                 break
 
         # Plot z vs wrench onto a window, image, or both
         if show_graph or img_file is not None:
             # Plot z vs wrench
-            plt.plot(pos_v_force[:, 2], pos_v_force[:, 3], '-', color="red")
+            plt.plot(pos_v_wrench[:, 2], pos_v_wrench[:, 3], '-', color="red")
 
             # Plot point at threshold
             plt.plot(pos[2], thresh)
@@ -278,28 +289,29 @@ class PlaneCalibration(Calibration):
 
 
     @classmethod
-    def analyze_palpation(cls, pos_v_force, show_graph=False, img_file=None):
+    def analyze_palpation(cls, pos_v_wrench, show_graph=False, img_file=None):
         data_moving = []
         data_contact = []
 
-        # Sort pos_v_force based on z-position
-        pos_v_force = np.array(sorted(pos_v_force, key=lambda t:t[2]))
-        z_v_force = pos_v_force[:, 2:4]
+        # Sort pos_v_wrench based on z-position
+        pos_v_wrench = np.array(sorted(pos_v_wrench, key=lambda t:t[2]))
+        z_v_wrench = pos_v_wrench[:, 2:4]
 
         # Separate points into periods of contact or movement of arm
         # (data_moving or data_contact)
         moving = False
-        for i, pt in enumerate(z_v_force[1:]):
-            # z_v_force[i] is z_v_force[1:][i-1], not the same as pt
-            deriv = PlaneCalibration.derivative(pt, z_v_force[i])
+        for i in range(len(z_v_wrench) - 1):
+            # If derivative is low negative in the beginning, then the arm is in contact
+            # Else, the arm is moving
+            deriv = PlaneCalibration.derivative(z_v_wrench[i], z_v_wrench[i-1])
             if deriv < -300:
                 if not moving:
-                    data_contact.append(z_v_force[i])
+                    data_contact.append(z_v_wrench[i-1])
                 else:
-                    data_moving.append(z_v_force[i])
+                    data_moving.append(z_v_wrench[i-1])
             else:
                 moving = True
-                data_moving.append(z_v_force[i])
+                data_moving.append(z_v_wrench[i-1])
 
 
         data_moving = np.array(data_moving)
@@ -336,11 +348,11 @@ class PlaneCalibration(Calibration):
 
 
         # Find average of the two points next to the z value
-        for i, pt in enumerate(pos_v_force):
-            if pos_v_force[i-1][2] <= pos[2] <= pt[2]:
-                pos[0] = (pt[0] + pos_v_force[i-1][0])/2
-                pos[1] = (pt[1] + pos_v_force[i-1][1])/2
-                joints = (pt[4:] + pos_v_force[i-1][4:])/2
+        for i in range(len(pos_v_wrench)):
+            if pos_v_wrench[i-1, 2] <= pos[2] <= pos_v_wrench[i, 2]:
+                pos[0] = (pos_v_wrench[i, 0] + pos_v_wrench[i-1, 0])/2
+                pos[1] = (pos_v_wrench[i, 1] + pos_v_wrench[i-1, 1])/2
+                joints = (pos_v_wrench[i, 4:] + pos_v_wrench[i-1, 4:])/2
                 break
 
         if show_graph or img_file is not None:
@@ -350,12 +362,14 @@ class PlaneCalibration(Calibration):
             plt.plot(pos[2], contact_eqn[0] * pos[2] + contact_eqn[1], 'o', color='purple', label="Intersection")
 
             # First plot all points, then plot the contact points and moving points
-            plt.scatter(z_v_force[:,0], z_v_force[:,1], s=10, color='green', label="Outliers")
+            plt.scatter(z_v_wrench[:,0], z_v_wrench[:,1], s=10, color='green', label="Outliers")
             plt.scatter(data_moving[:,0], data_moving[:,1], s=10, color='red', label="Points of movement")
             plt.scatter(data_contact[:,0], data_contact[:,1], s=10, color='blue', label="Points of contact")
             plt.legend()
             plt.xlabel("Z")
             plt.ylabel("Wrench")
+
+            # Save file to image
             if img_file is not None:
                 # Choose same filename as graph, but instead of csv, do svg
                 img_filename = os.path.splitext(img_file)[0] + ".png"

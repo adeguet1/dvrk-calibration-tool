@@ -124,7 +124,9 @@ def get_offset_v_error(offset_v_error_filename, data_files, polaris=False):
                 data = joint_set.copy()
                 fk_pts = np.array([])
                 for q in data:
+                    # Change 2nd joint by `offset` tenths of a millimeter
                     q[2] += offset / 10000
+                    # Run forward kinematics on each point and get result
                     fk_pts = np.append(fk_pts, rob.ForwardKinematics(q)[:3, 3])
                 fk_pts = fk_pts.reshape((-1, 3))
                 fk_pt_set.append(fk_pts)
@@ -133,23 +135,28 @@ def get_offset_v_error(offset_v_error_filename, data_files, polaris=False):
             if polaris:
                 # Use rigid registration if polaris is used
                 error = sum([
-                    nmrRegistrationRigid(coords_fk, coords_polaris)[1]
+                    nmrRegistrationRigid(coords_fk, coords_polaris)[1] # Returns transf, err
                     for coords_fk, coords_polaris in zip(fk_pt_set, polaris_coord_set)
                 ])
             else:
                 # Use plane of best fit if palpation is used
-                error = sum([get_best_fit_plane(coords_fk)[1] for coords_fk in fk_pt_set])
+                error = sum([
+                    get_best_fit_plane(coords_fk)[1] # Returns equation, err
+                    for coords_fk in fk_pt_set
+                ])
 
 
-            # Write plots
+            # Add new points
             offset_v_error = np.append(offset_v_error, np.array([offset, error]))
-            fk_plot.writerow({"offset": offset / 10000, "error": error})
+
+            # Write plots in tenths of millimeters
+            fk_plot.writerow({"offset": offset, "error": error})
 
 
     offset_v_error = offset_v_error.reshape(-1, 2)
 
     # Convert from tenths of a millimeter to meters
-    offset_v_error[:, 0] /= 10000
+    # offset_v_error[:, 0] /= 10000
 
     return offset_v_error
 
