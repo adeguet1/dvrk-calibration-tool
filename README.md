@@ -4,6 +4,11 @@ Script written to calibrate the third joint of the dVRK
 
 Currently works for Python 2, untested on Python 3
 
+If you want help with any of the commands, run
+```bash
+./calibrate.py [subcommand] --help
+```
+
 To start, run this command to record all points by palpating:
 ```bash
 ./calibrate.py record PSM3
