@@ -213,9 +213,9 @@ def parse_record(args):
         calibration = PlaneCalibration(args.arm)
 
         if not args.single_palpation:
-            # pts = calibration.get_corners()
+            pts = calibration.get_corners()
             goal = copy(pts[2])
-            goal.p[2] += 0.05
+            goal.p[2] += 0.10
             calibration.arm.move(goal)
             goal = copy(pts[0])
             calibration.arm.home()
