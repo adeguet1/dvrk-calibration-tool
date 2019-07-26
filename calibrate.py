@@ -65,7 +65,7 @@ class Calibration(object):
         self.arm.move(self.ROT_MATRIX)
 
     def output_to_csv(self):
-        "Outputs contents of self.data to fpath"
+        """Outputs contents of self.data to fpath"""
         filename = "plane.csv" if not self.polaris else "polaris_point_cloud.csv"
         self.info["polaris"] = self.polaris
         with open(os.path.join(self.folder, "info.txt"), 'w') as infofile:
@@ -75,8 +75,7 @@ class Calibration(object):
         with open(os.path.join(self.folder, filename), 'w') as csvfile:
             writer = csv.DictWriter(csvfile, fieldnames=self.data[0].keys())
             writer.writeheader()
-            for row in self.data:
-                writer.writerow(row)
+            writer.writerows(self.data)
 
 
 def choose_filename(fpath):
@@ -183,36 +182,33 @@ def plot_data(data_file, save=True):
 
 
 def parse_record(args):
-    pts = [
-        PyKDL.Vector(0.06374846990290427, 0.05505725086391641, -0.15585194627277937),
-        PyKDL.Vector(0.0530533084000882, -0.08832456079637394, -0.16132631689055202),
-        PyKDL.Vector(-0.06385800414598963, -0.0854254024006429, -0.15375787892199785)
-    ]
-    pts = [PyKDL.Frame(Calibration.ROT_MATRIX, pt) for pt in pts]
+    # pts = [
+    #     PyKDL.Vector(0.06374846990290427, 0.05505725086391641, -0.15585194627277937),
+    #     PyKDL.Vector(0.0530533084000882, -0.08832456079637394, -0.16132631689055202),
+    #     PyKDL.Vector(-0.06385800414598963, -0.0854254024006429, -0.15375787892199785)
+    # ]
+    # pts = [PyKDL.Frame(Calibration.ROT_MATRIX, pt) for pt in pts]
     if args.polaris:
         from calibrate_polaris import PolarisCalibration
         calibration = PolarisCalibration(args.arm)
-        # pts = calibration.get_corners()
-        # grid = calibration.gen_grid(pts, args.samples, verbose=args.verbose)
-        # calibration.record_points_polaris(grid, verbose=args.verbose)
         joint_set = list(calibration.gen_wide_joint_positions())
         print("Starting calibration")
         time.sleep(0.5)
         calibration.record_joints(joint_set, verbose=args.verbose)
         calibration.output_to_csv()
         print("Run `./calibrate.py view {}` to view the recorded data points,"
-                .format(os.path.join(calibration.folder, "polars_point_cloud.csv")))
-        print("run `./calibrate.py analyze -p {}` to analyze the recorded data points, or"
-                .format(os.path.join(calibration.folder, "polars_point_cloud.csv")))
-        print("run `./calibrate.py analyze -p {} -w "
-                "~/catkin_ws/src/cisst-saw/sawIntuitiveResearchKit/share/jhu-daVinci/"
-                "sawRobotIO1394-PSM3-28613.xml` to analyze and write the resulting offset"
-                .format(os.path.join(calibration.folder, "polars_point_cloud.csv")))
+                .format(os.path.join(calibration.folder, "polaris_point_cloud.csv")))
+        print("run `./calibrate.py analyze {}` to analyze the recorded data points, or"
+                .format(os.path.join(calibration.folder, "polaris_point_cloud.csv")))
+        print("run `./calibrate.py analyze {} -w {}\nto analyze and write the resulting offset"
+                .format(os.path.join(calibration.folder, "polaris_point_cloud.csv"), args.write))
     else:
         from calibrate_plane import PlaneCalibration
-        calibration = PlaneCalibration(args.arm)
 
-        if not args.single_palpation:
+        if args.virtual:
+            PlaneCalibration.run_virtual_palpations(args.virtual, show_graph=True)
+        elif not args.single_palpation:
+            calibration = PlaneCalibration(args.arm)
             pts = calibration.get_corners()
             goal = copy(pts[2])
             goal.p[2] += 0.10
@@ -229,11 +225,10 @@ def parse_record(args):
                   .format(os.path.join(calibration.folder, "plane.csv")))
             print("run `./calibrate.py analyze {}` to analyze the recorded data points, or"
                   .format(os.path.join(calibration.folder, "plane.csv")))
-            print("run `./calibrate.py analyze {} -w "
-                  "~/catkin_ws/src/cisst-saw/sawIntuitiveResearchKit/share/jhu-daVinci/"
-                  "sawRobotIO1394-PSM3-28613.xml` to analyze and write the resulting offset"
-                  .format(os.path.join(calibration.folder, "plane.csv")))
+            print("run `./calibrate.py analyze {} -w {}\nto analyze and write the resulting offset"
+                  .format(os.path.join(calibration.folder, "plane.csv"), args.write))
         else:
+            calibration = PlaneCalibration(args.arm)
             print("Position the arm at the point you want to palpate at, then press enter.",
                   end=' ')
             sys.stdin.readline()
@@ -251,6 +246,13 @@ def parse_record(args):
 
 
 def parse_view(args):
+    # Save image to file
+    if args.save:
+        # Choose same filename as graph, but instead of csv, do svg
+        img_filename = os.path.splitext(args.input)[0] + ".png"
+    else:
+        img_filename = None
+
     if os.path.isdir(args.input):
         # Display entire set of palpations
         from calibrate_plane import PlaneCalibration
@@ -271,7 +273,7 @@ def parse_view(args):
                         float(row["z-position"]),
                         float(row["wrench"]),
                     ])
-                PlaneCalibration.analyze_palpation(pos_v_wrench, show_graph=True, save=args.save)
+                PlaneCalibration.analyze_palpation(pos_v_wrench, show_graph=True, img_file=img_filename)
     elif os.path.basename(args.input).startswith("palpation"):
         # Display singular palpation
         with open(args.input) as csvfile:
@@ -285,7 +287,7 @@ def parse_view(args):
                     float(row["z-position"]),
                     float(row["wrench"]),
                 ])
-            PlaneCalibration.analyze_palpation(pos_v_wrench, show_graph=True, save=args.save)
+            PlaneCalibration.analyze_palpation(pos_v_wrench, show_graph=True, img_file=img_filename)
     elif os.path.basename(args.input).startswith("offset_v_error"):
         # Display offset_v_error graph
 
@@ -320,10 +322,7 @@ def parse_view(args):
             plt.scatter(offset_v_error[:, 0], offset_v_error[:, 1], s=10, color="green")
             plt.plot(min_x, min_y, 'o', color="purple")
 
-            # Save image to file
             if args.save:
-                # Choose same filename as graph, but instead of csv, do svg
-                img_filename = os.path.splitext(args.input)[0] + ".png"
                 plt.savefig(img_filename)
 
             plt.show()
@@ -342,7 +341,7 @@ def parse_analyze(args):
 
     offset_v_error = get_offset_v_error(offset_v_error_filename, args.input, polaris=polaris)
     # min_offset = get_quadratic_min(offset_v_error)
-    offset = offset_v_error[(np.where(offset_v_error[:, 1] == np.amin(offset_v_error[:, 1]))[0][0]), 0] / 10
+    offset_correction = offset_v_error[(np.where(offset_v_error[:, 1] == np.amin(offset_v_error[:, 1]))[0][0]), 0] / 10
 
     if args.write:
         if os.path.exists(args.write):
@@ -356,16 +355,16 @@ def parse_analyze(args):
                 print("Error: There must be exactly one Actuator with ActuatorID=2")
                 sys.exit(1)
             current_offset = float(VoltsToPosSI.get("Offset"))
-            VoltsToPosSI.set("Offset", str(offset + current_offset))
+            VoltsToPosSI.set("Offset", str(offset_correction + current_offset))
             tree.write(args.write)
-            print(("Wrote offset: {}mm (Current offset) + {}mm (Additional offset) "
-                   "= {}mm (Written offset)").format(current_offset, offset,
-                                                   offset + current_offset))
+            print(("Wrote offset: {}mm (Current offset) + {}mm (Offset correction) "
+                   "= {}mm (Written offset)").format(current_offset, offset_correction,
+                                                   offset_correction + current_offset))
         else:
             print("Error: File does not exist")
             sys.exit(1)
     else:
-        print("Offset: {}mm".format(offset))
+        print("Offset correction: {}mm".format(offset_correction))
 
 
 if __name__ == "__main__":
@@ -386,8 +385,16 @@ if __name__ == "__main__":
         help="arm to record points from"
     )
     parser_record.add_argument(
+        "write",
+        help="file to write to"
+    )
+    parser_record.add_argument(
         "-o", "--output",
         help="folder to output data",
+    )
+    parser_record.add_argument(
+        "-v", "--virtual",
+        help="run virtual palpations",
     )
     parser_record.add_argument(
         "-p", "--polaris",

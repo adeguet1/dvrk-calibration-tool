@@ -42,23 +42,27 @@ class PlaneCalibration(Calibration):
 
 
         goal = PyKDL.Frame(self.ROT_MATRIX)
-        # print("Using points {}, {}, and {}".format(*[tuple(pt.p) for pt in pts]))
 
-        for i in range(nsamples):
+        for row in range(nsamples):
             # For each row, store 2 vectors as the right side and left side
-            rightside = pts[1].p + i / (nsamples - 1) * (pts[2].p - pts[1].p)
-            leftside = pts[0].p + i / (nsamples - 1) * (pts[2].p - pts[1].p)
-            print("moving arm to row ", i)
-            for j in range(nsamples):
-                print("\tmoving arm to column ", j)
+            rightside = pts[1].p + row / (nsamples - 1) * (pts[2].p - pts[1].p)
+            leftside = pts[0].p + row / (nsamples - 1) * (pts[2].p - pts[1].p)
+            
+            # Switch j from increasing to decreasing based on if the row is even or odd
+            print("moving arm to row ", row)
+            if row % 2 == 0:
+                args = (nsamples,)
+            else:
+                args = (nsamples - 1, -1, -1)
+
+            for col in range(*args):
+                print("\tmoving arm to column ", col)
+                
                 # Move from right side to left side or vice versa in steps
                 goal = PyKDL.Frame(self.ROT_MATRIX)
-                if i % 2 == 0:
-                    goal.p = leftside + (j / (nsamples - 1) *
-                                         (rightside - leftside))
-                else:
-                    goal.p = rightside + (j / (nsamples - 1) *
-                                          (leftside - rightside))
+                goal.p = leftside + (col
+                                     / (nsamples - 1)
+                                     * (rightside - leftside))
 
                 # Move arm up before starting palpation
                 goal.p[2] += 0.01
@@ -67,7 +71,7 @@ class PlaneCalibration(Calibration):
                 # Store palpation in a csv file
                 palpate_file = os.path.join(
                     self.folder,
-                    "palpation_{}_{}.csv".format(i, j)
+                    "palpation_{}_{}.csv".format(row, col)
                 )
 
                 # Returns a numpy array containing the position, joint angles vs the wrench
@@ -87,10 +91,6 @@ class PlaneCalibration(Calibration):
                 if pos is None:
                     rospy.logwarn("Didn't get enough data, disregarding point and continuing to next")
                     continue
-
-                print("Using {} instead of {}".format(joints, self.arm.get_current_joint_position()))
-
-
 
                 data_dict = {
                     "arm_position_x": pos[0],
@@ -211,15 +211,18 @@ class PlaneCalibration(Calibration):
 
     @classmethod
     def run_virtual_palpations(cls, folder, show_graph=False, img_file=None):
+        data = []
+
         if not os.path.isdir(folder):
             print("There must be a folder at {}".format(folder))
             sys.exit(1)
 
-        for palpation_file in os.path.listdir(folder):
+        for palpation_file in os.listdir(folder):
             # Ignore non-palpation files, e. g. "offset_v_error.csv", "plane.csv", etc.
             if not palpation_file.startswith("palpation"):
                 continue
 
+            print(palpation_file)
             with open(os.path.join(folder, palpation_file)) as infile:
                 reader = csv.DictReader(infile)
                 pos_v_wrench = []
@@ -229,16 +232,16 @@ class PlaneCalibration(Calibration):
                     ]
                     pos_v_wrench.append((
                         [
-                            float(row["arm_position_x"]),
-                            float(row["arm_position_y"]),
-                            float(row["arm_position_z"]),
+                            float(row["x-position"]),
+                            float(row["y-position"]),
+                            float(row["z-position"]),
                             float(row["wrench"])
                         ]
                         + joints
                     ))
-                    pos, joints = cls.analyze_palpation_threshold(pos_v_wrench,
-                                                                  show_graph=show_graph,
-                                                                  img_file=img_file)
+                    pos, joints = cls.analyze_palpation(pos_v_wrench,
+                                                        show_graph=show_graph,
+                                                        img_file=img_file)
                     data_dict = {
                         "arm_position_x": pos[0],
                         "arm_position_y": pos[1],
@@ -248,7 +251,12 @@ class PlaneCalibration(Calibration):
                     for joint_num, joint_pos in enumerate(joints):
                         data_dict.update({"joint_{}_position".format(joint_num): joint_pos})
 
-                    self.data.append(copy(data_dict))
+                    data.append(copy(data_dict))
+        
+        with open(os.path.join(folder, "plane.csv")) as outfile:
+            csvfile = csv.DictWriter(outfile, filenames=data[0].keys())
+            csvfile.writeheader()
+            csvfile.writerows(data)
 
 
     @classmethod
@@ -300,7 +308,7 @@ class PlaneCalibration(Calibration):
         # Separate points into periods of contact or movement of arm
         # (data_moving or data_contact)
         moving = False
-        for i in range(len(z_v_wrench) - 1):
+        for i in range(1, len(z_v_wrench)):
             # If derivative is low negative in the beginning, then the arm is in contact
             # Else, the arm is moving
             deriv = PlaneCalibration.derivative(z_v_wrench[i], z_v_wrench[i-1])

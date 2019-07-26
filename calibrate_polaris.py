@@ -51,9 +51,11 @@ class PolarisCalibration(Calibration):
             self.arm.move(self.ROT_MATRIX)
             time.sleep(0.5)
             rot_matrix = self.arm.get_current_position().M
-            rot_diff = self.ROT_MATRIX * rot_matrix.Inverse()
             marker_pos = self.marker.get_current_position()
-            if np.rad2deg(np.abs(rot_diff.GetRPY()).max()) > 2:
+            # check difference in angle 
+            rot_diff = self.ROT_MATRIX * rot_matrix.Inverse()
+            # if difference in angle is > 2 degrees
+            if np.rad2deg(rot_diff.GetRotAngle()[0]) > 2:
                 rospy.logwarn("Disregarding bad orientation:\n{}".format(rot_matrix))
                 bad_rots += 1
             elif marker_pos is None:
