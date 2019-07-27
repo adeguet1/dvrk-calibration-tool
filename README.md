@@ -14,12 +14,14 @@ To start, run this command to record all points by palpating:
 ./calibrate.py record {PSM_NAME} {CONFIG_FILE}
 ```
 
-To record the points using a Polaris, run:
+To record the points using a tracker, run:
 ```bash
-./calibrate.py record -p {PSM_NAME} {CONFIG_FILE}
+./calibrate.py record -t {PSM_NAME} {CONFIG_FILE}
 ```
 
-This command creates a folder in the format `{ARM_NAME}_{DATE}_{TIME}`, which stores all the values for the calibration
+**Note**: View subcommand needs to be updated to match the updates to PlaneCalibration
+
+This command creates a folder in the format `{ARM_NAME}_{DATE}_{TIME}`, which stores all the values for the calibration: palpation_{row}_{column}.csv and info.txt
 
 After running the command, if you want to view the resulting plane from the palpations, run:
 ```bash
@@ -42,12 +44,14 @@ If you want to view a single palpation, run:
 
 After this, to get the offset from the data recorded by palpations, run:
 ```bash
-./calibrate.py analyze data/{ARM_NAME}_{DATE}_{TIME}/plane.csv
+./calibrate.py analyze data/{ARM_NAME}_{DATE}_{TIME}
 ```
+
+This command outputs a file in the folder called `plane.csv`
 
 If you want to get the offset from the data recorded by a Polaris, run:
 ```bash
-./calibrate.py analyze data/{ARM_NAME}_{DATE}_{TIME}/polaris_point_cloud.csv
+./calibrate.py analyze -t data/{ARM_NAME}_{DATE}_{TIME}
 ```
 
 After getting the offset you may want to view the resulting offset vs error graph, by running:
