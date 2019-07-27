@@ -15,7 +15,7 @@ from mpl_toolkits.mplot3d import Axes3D
 import PyKDL
 import rospy
 import dvrk
-from analyze_data import get_offset_v_error, get_best_fit_plane, get_poly_min
+from analyze_data import get_offset_v_error, get_best_fit_plane, get_poly_min, analyze_palpations
 from marker import Marker
 from cisstNumericalPython import nmrRegistrationRigid
 
@@ -27,7 +27,7 @@ class Calibration(object):
         0,    0,   -1
     )
 
-    def __init__(self, robot_name):
+    def __init__(self, robot_name, config_file):
         print("initializing calibration for", robot_name)
         print("have a flat surface below the robot")
         self.data = []
@@ -41,6 +41,19 @@ class Calibration(object):
 
         self.arm = dvrk.psm(robot_name)
         self.home()
+
+        tree = ET.parse(config_file)
+        root = tree.getroot()
+        xpath_search_results = root.findall("./Robot/Actuator[@ActuatorID='2']/AnalygIn/VoltsToPosSI")
+        if len(xpath_search_results) == 1:
+            VoltsToPosSI = xpath_search_results[0]
+        else:
+            print("Error: There must be exactly one Actuator with ActuatorID=2")
+            sys.exit(1)
+
+        current_offset = float(VoltsToPosSI.get("Offset"))
+        self.info["Config File"] = config_file
+        self.info["Current Offset"] = current_offset
 
     def home(self):
         "Goes to x = 0, y = 0, extends joint 2 past the cannula, and sets home"
@@ -64,33 +77,13 @@ class Calibration(object):
             self.arm.move_joint(goal)
         self.arm.move(self.ROT_MATRIX)
 
-    def output_to_csv(self):
-        """Outputs contents of self.data to fpath"""
-        filename = "plane.csv" if not self.polaris else "polaris_point_cloud.csv"
-        self.info["polaris"] = self.polaris
+    def output_info(self):
+        """Output info to {folder}/info.txt"""
+        self.info["Polaris"] = self.polaris
+
         with open(os.path.join(self.folder, "info.txt"), 'w') as infofile:
             for key, val in self.info.iteritems():
                 infofile.write("{}: {}\n".format(key, val))
-
-        with open(os.path.join(self.folder, filename), 'w') as csvfile:
-            writer = csv.DictWriter(csvfile, fieldnames=self.data[0].keys())
-            writer.writeheader()
-            writer.writerows(self.data)
-
-
-def choose_filename(fpath):
-    """checks if file at fpath already exists.
-    If so, it increments the file"""
-    if not os.path.exists(fpath):
-        new_fname = fpath
-    else:
-        fname, file_ext = os.path.splitext(fpath)
-        i = 1
-        new_fname = "{}_{}{}".format(fname, i, file_ext)
-        while os.path.exists(new_fname):
-            i += 1
-            new_fname = "{}_{}{}".format(fname, i, file_ext)
-    return new_fname
 
 
 def plot_data(data_file, save=True):
@@ -188,7 +181,7 @@ def parse_record(args):
     #     PyKDL.Vector(-0.06385800414598963, -0.0854254024006429, -0.15375787892199785)
     # ]
     # pts = [PyKDL.Frame(Calibration.ROT_MATRIX, pt) for pt in pts]
-    if args.polaris:
+    if args.tracker:
         from calibrate_polaris import PolarisCalibration
         calibration = PolarisCalibration(args.arm)
         joint_set = list(calibration.gen_wide_joint_positions())
@@ -202,12 +195,12 @@ def parse_record(args):
                 .format(os.path.join(calibration.folder, "polaris_point_cloud.csv")))
         print("run `./calibrate.py analyze {} -w {}\nto analyze and write the resulting offset"
                 .format(os.path.join(calibration.folder, "polaris_point_cloud.csv"), args.write))
+        calibration.output_info()
     else:
         from calibrate_plane import PlaneCalibration
 
-        if args.virtual:
-            PlaneCalibration.run_virtual_palpations(args.virtual, show_graph=True)
-        elif not args.single_palpation:
+        if not args.single_palpation:
+            # Full plane palpation
             calibration = PlaneCalibration(args.arm)
             pts = calibration.get_corners()
             goal = copy(pts[2])
@@ -220,14 +213,15 @@ def parse_record(args):
             goal.p[2] -= 0.085
             calibration.arm.move(goal)
             calibration.record_points(pts, args.samples, verbose=args.verbose)
-            calibration.output_to_csv()
             print("Run `./calibrate.py view {}` to view the recorded data points,"
                   .format(os.path.join(calibration.folder, "plane.csv")))
             print("run `./calibrate.py analyze {}` to analyze the recorded data points, or"
                   .format(os.path.join(calibration.folder, "plane.csv")))
             print("run `./calibrate.py analyze {} -w {}\nto analyze and write the resulting offset"
                   .format(os.path.join(calibration.folder, "plane.csv"), args.write))
+            calibration.output_info()
         else:
+            # Single palpation
             calibration = PlaneCalibration(args.arm)
             print("Position the arm at the point you want to palpate at, then press enter.",
                   end=' ')
@@ -242,7 +236,6 @@ def parse_record(args):
                 rospy.logerr("Didn't reach surface; closing program")
                 sys.exit(1)
             print("Using {}".format(calibration.analyze_palpation(pos_v_wrench, show_graph=True)))
-
 
 
 def parse_view(args):
@@ -333,13 +326,13 @@ def parse_view(args):
 
 def parse_analyze(args):
     folder = os.path.dirname(args.input[0])
-    if os.path.basename(args.input[0]) == "polaris_point_cloud.csv":
-        polaris = True
-    elif os.path.basename(args.input[0]) == "plane.csv":
-        polaris = False
+
+    if not args.tracker:
+        analyze_palpations(folder, show_graph=args.view)
+
     offset_v_error_filename = os.path.join(folder, "offset_v_error.csv")
 
-    offset_v_error = get_offset_v_error(offset_v_error_filename, args.input, polaris=polaris)
+    offset_v_error = get_offset_v_error(offset_v_error_filename, args.input, polaris=args.tracker)
     # min_offset = get_quadratic_min(offset_v_error)
     offset_correction = offset_v_error[(np.where(offset_v_error[:, 1] == np.amin(offset_v_error[:, 1]))[0][0]), 0] / 10
 
@@ -393,12 +386,8 @@ if __name__ == "__main__":
         help="folder to output data",
     )
     parser_record.add_argument(
-        "-v", "--virtual",
-        help="run virtual palpations",
-    )
-    parser_record.add_argument(
-        "-p", "--polaris",
-        help="use polaris",
+        "-t", "--tracker",
+        help="use external tracker",
         default=False,
         action="store_true"
     )
@@ -450,6 +439,16 @@ if __name__ == "__main__":
         "-w", "--write",
         help="write offset to file",
         default=False,
+    )
+    parser_analyze.add_argument(
+        "-v", "--view",
+        help="view graphs of palpations",
+        default=False,
+        action="store_true"
+    )
+    parser_analyze.add_argument(
+        "-t", "--tracker",
+        help="use external tracker"
     )
     parser_analyze.set_defaults(func=parse_analyze)
 

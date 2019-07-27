@@ -84,3 +84,12 @@ class PolarisCalibration(Calibration):
         print(rospy.get_caller_id(), '<- calibration complete')
         print("Number of bad points: {}".format(self.marker.n_bad_callbacks + bad_rots))
 
+    def output_to_csv(self):
+        """Outputs contents of self.data to fpath"""
+        filename = "polaris_point_cloud.csv"
+
+        with open(os.path.join(self.folder, filename), 'w') as csvfile:
+            writer = csv.DictWriter(csvfile, fieldnames=self.data[0].keys())
+            writer.writeheader()
+            writer.writerows(self.data)
+
