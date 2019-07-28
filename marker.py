@@ -5,8 +5,9 @@ from sensor_msgs.msg import PointCloud
 
 class Marker:
 
-    def __init__(self):
-        self.subscriber = rospy.Subscriber("/ndi/fiducials", PointCloud, self.callback)
+    def __init__(self, ros_namespace):
+        self.ros_namespace = ros_namespace
+        self.subscriber = rospy.Subscriber(self.ros_namespace, PointCloud, self.callback)
         self._coord = np.zeros((3))
         self.bad_callback = False
         self.n_bad_callbacks = 0

@@ -5,17 +5,16 @@ import time
 import numpy as np
 import PyKDL
 import rospy
-import matplotlib.pyplot as plt
-from calibrate import Calibration
+from record import Record
 from marker import Marker
 from copy import copy
 
-class PolarisCalibration(Calibration):
+class TrackerCalibration(Calibration):
 
-    def __init__(self, robot_name):
-        super(PolarisCalibration, self).__init__(robot_name)
-        self.marker = Marker()
-        self.polaris = True
+    def __init__(self, robot_name, marker_namespace):
+        super(TrackerCalibration, self).__init__(robot_name)
+        self.marker = Marker(marker_namespace)
+        self.tracker = True
 
     def gen_wide_joint_positions(self, nsamples=6):
         q = np.zeros((6))
@@ -34,7 +33,7 @@ class PolarisCalibration(Calibration):
                     yield copy(q)
 
     def record_joints(self, joint_set, verbose=False):
-        """Record points using polaris by controlling the joints
+        """Record points using tracker by controlling the joints
         of the dVRK"""
         # Get number of columns of terminal and subtract it by 2 to get
         # the toolbar width
@@ -59,16 +58,16 @@ class PolarisCalibration(Calibration):
                 rospy.logwarn("Disregarding bad orientation:\n{}".format(rot_matrix))
                 bad_rots += 1
             elif marker_pos is None:
-                rospy.logwarn("Disregarding bad data received from Polaris")
+                rospy.logwarn("Disregarding bad data received from Tracker")
             else:
                 arm_coord = self.arm.get_current_position().p
                 data_dict = {
                     "arm_position_x": arm_coord[0],
                     "arm_position_y": arm_coord[1],
                     "arm_position_z": arm_coord[2],
-                    "polaris_position_x": marker_pos[0],
-                    "polaris_position_y": marker_pos[1],
-                    "polaris_position_z": marker_pos[2],
+                    "tracker_position_x": marker_pos[0],
+                    "tracker_position_y": marker_pos[1],
+                    "tracker_position_z": marker_pos[2],
                 }
                 for joint_num, joint_pos in enumerate(self.arm.get_current_joint_position()):
                     data_dict.update({"joint_{}_position".format(joint_num): joint_pos})
@@ -81,12 +80,12 @@ class PolarisCalibration(Calibration):
         end_time = time.time()
         duration = end_time - start_time
         print("Finished in {}m {}s".format(int(duration) // 60, int(duration % 60)))
-        print(rospy.get_caller_id(), '<- calibration complete')
+        print(rospy.get_caller_id(), '<- recording complete')
         print("Number of bad points: {}".format(self.marker.n_bad_callbacks + bad_rots))
 
     def output_to_csv(self):
         """Outputs contents of self.data to fpath"""
-        filename = "polaris_point_cloud.csv"
+        filename = "tracker_point_cloud.csv"
 
         with open(os.path.join(self.folder, filename), 'w') as csvfile:
             writer = csv.DictWriter(csvfile, fieldnames=self.data[0].keys())

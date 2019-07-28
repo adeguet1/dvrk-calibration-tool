@@ -2,15 +2,12 @@ from __future__ import print_function, division
 import sys
 import os.path
 import csv
-from copy import copy
-import numpy as np
 import time
 import PyKDL
 import rospy
-import matplotlib.pyplot as plt
-from calibrate import Calibration
+from record import Record
 
-class PlaneCalibration(Calibration):
+class PlaneRecord(Record):
 
     CONTACT_THRESH = 1.5
     PALPATE_THRESH = 2.5
@@ -88,7 +85,7 @@ class PlaneCalibration(Calibration):
 
                 time.sleep(0.5)
 
-        print(rospy.get_caller_id(), '<- calibration complete')
+        print(rospy.get_caller_id(), '<- recording complete')
 
     def palpate(self, output_file):
         """Move down until wrenchs act on the motor in the z direction,

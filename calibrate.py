@@ -16,82 +16,14 @@ import PyKDL
 import rospy
 import dvrk
 from analyze_data import get_offset_v_error, get_best_fit_plane, get_poly_min, analyze_palpations
-from marker import Marker
 from cisstNumericalPython import nmrRegistrationRigid
 
-class Calibration(object):
-
-    ROT_MATRIX = PyKDL.Rotation(
-        1,    0,    0,
-        0,   -1,    0,
-        0,    0,   -1
-    )
-
-    def __init__(self, robot_name, config_file):
-        print("initializing calibration for", robot_name)
-        print("have a flat surface below the robot")
-        self.data = []
-        self.polaris = False
-        self.info = {}
-        # Add checker for directory
-        strdate = time.strftime("%Y-%m-%d_%H-%M-%S")
-        self.folder = os.path.join("data", "{}_{}".format(robot_name, strdate))
-        os.mkdir(self.folder)
-        print("Created folder at {}".format(os.path.abspath(self.folder)))
-
-        self.arm = dvrk.psm(robot_name)
-        self.home()
-
-        tree = ET.parse(config_file)
-        root = tree.getroot()
-        xpath_search_results = root.findall("./Robot/Actuator[@ActuatorID='2']/AnalygIn/VoltsToPosSI")
-        if len(xpath_search_results) == 1:
-            VoltsToPosSI = xpath_search_results[0]
-        else:
-            print("Error: There must be exactly one Actuator with ActuatorID=2")
-            sys.exit(1)
-
-        current_offset = float(VoltsToPosSI.get("Offset"))
-        self.info["Config File"] = config_file
-        self.info["Current Offset"] = current_offset
-
-    def home(self):
-        "Goes to x = 0, y = 0, extends joint 2 past the cannula, and sets home"
-        # make sure the camera is past the cannula and tool vertical
-        print("starting home")
-        self.arm.home()
-        self.arm.close_jaw()
-
-        if self.arm.get_current_joint_position()[2] > 0.12:
-            # Already past cannula
-            carte_goal = self.arm.get_current_position().p
-            carte_goal[2] += 0.04
-            self.arm.move(carte_goal)
-
-        goal = np.zeros(6)
-
-        if ((self.arm.name() == 'PSM1') or (self.arm.name() == 'PSM2') or
-            (self.arm.name() == 'PSM3') or (self.arm.name() == 'ECM')):
-            # set in position joint mode
-            goal[2] = 0.08
-            self.arm.move_joint(goal)
-        self.arm.move(self.ROT_MATRIX)
-
-    def output_info(self):
-        """Output info to {folder}/info.txt"""
-        self.info["Polaris"] = self.polaris
-
-        with open(os.path.join(self.folder, "info.txt"), 'w') as infofile:
-            for key, val in self.info.iteritems():
-                infofile.write("{}: {}\n".format(key, val))
-
-
-def plot_data(data_file, save=True):
-    "Plots the data from the csv file data_file"
+def plot_data(data_file):
+    """Plots the data from the csv file data_file"""
 
     coords = np.array([])
 
-    polaris_coords = np.array([])
+    tracker_coords = np.array([])
 
     joint_set = np.array([])
 
@@ -110,32 +42,32 @@ def plot_data(data_file, save=True):
             ])
             coords = np.append(coords, coord)
             if len(row) == 12:
-                polaris = True
-                polaris_coord = np.array([
-                    float(row["polaris_position_x"]),
-                    float(row["polaris_position_y"]),
-                    float(row["polaris_position_z"]),
+                tracker = True
+                tracker_coord = np.array([
+                    float(row["tracker_position_x"]),
+                    float(row["tracker_position_y"]),
+                    float(row["tracker_position_z"]),
                 ])
-                polaris_coords = np.append(polaris_coords, polaris_coord)
+                tracker_coords = np.append(tracker_coords, tracker_coord)
             else:
-                polaris = False
+                tracker = False
 
     coords = coords.reshape(-1, 3)
 
-    if polaris:
-        polaris_coords = polaris_coords.reshape(-1, 3)
+    if tracker:
+        tracker_coords = tracker_coords.reshape(-1, 3)
 
     joint_set = joint_set.reshape(-1, 6)
 
 
-    if polaris:
-        transf, error = nmrRegistrationRigid(coords, polaris_coords)
+    if tracker:
+        transf, error = nmrRegistrationRigid(coords, tracker_coords)
         rot_matrix = transf.Rotation()
         translation = transf.Translation()
-        polaris_coords = (polaris_coords - translation).dot(rot_matrix)
+        tracker_coords = (tracker_coords - translation).dot(rot_matrix)
         print("Rigid Registration Error: {}".format(error))
 
-    if not polaris:
+    if not tracker:
         X, Y = np.meshgrid(
             np.arange(
                 min(coords[:,0])-0.05,
@@ -155,9 +87,9 @@ def plot_data(data_file, save=True):
     # plot points and fitted surface
     fig = plt.figure()
     ax = fig.gca(projection='3d')
-    if polaris:
-        ax.scatter(polaris_coords[:,0], polaris_coords[:,1], polaris_coords[:,2],
-            c='b', s=20, label="Polaris")
+    if tracker:
+        ax.scatter(tracker_coords[:,0], tracker_coords[:,1], tracker_coords[:,2],
+            c='b', s=20, label="Tracker")
         ax.scatter(coords[:,0], coords[:,1], coords[:,2], c='r', s=20, label="Arm")
     else:
         ax.plot_surface(X, Y, Z, rstride=1, cstride=1, alpha=0.2)
@@ -167,179 +99,103 @@ def plot_data(data_file, save=True):
     plt.ylabel('Y')
     ax.set_zlabel('Z')
     ax.legend()
-    if save:
-        # Choose same filename as graph, but instead of csv, do svg
-        img_filename = os.path.splitext(data_file)[0] + ".png"
-        plt.savefig(img_filename)
     plt.show()
 
 
-def parse_record(args):
-    # pts = [
-    #     PyKDL.Vector(0.06374846990290427, 0.05505725086391641, -0.15585194627277937),
-    #     PyKDL.Vector(0.0530533084000882, -0.08832456079637394, -0.16132631689055202),
-    #     PyKDL.Vector(-0.06385800414598963, -0.0854254024006429, -0.15375787892199785)
-    # ]
-    # pts = [PyKDL.Frame(Calibration.ROT_MATRIX, pt) for pt in pts]
-    if args.tracker:
-        from calibrate_polaris import PolarisCalibration
-        calibration = PolarisCalibration(args.arm)
-        joint_set = list(calibration.gen_wide_joint_positions())
-        print("Starting calibration")
-        time.sleep(0.5)
-        calibration.record_joints(joint_set, verbose=args.verbose)
-        calibration.output_to_csv()
-        print("Run `./calibrate.py view {}` to view the recorded data points,"
-                .format(os.path.join(calibration.folder, "polaris_point_cloud.csv")))
-        print("run `./calibrate.py analyze {}` to analyze the recorded data points, or"
-                .format(os.path.join(calibration.folder, "polaris_point_cloud.csv")))
-        print("run `./calibrate.py analyze {} -w {}\nto analyze and write the resulting offset"
-                .format(os.path.join(calibration.folder, "polaris_point_cloud.csv"), args.write))
-        calibration.output_info()
+def parse_info(info_filename):
+    info = {}
+    if os.path.exists(info_filename):
+        with open(info_filename) as info_file:
+            info_text = info_file.read()
+            for line in info_text.splitlines():
+                items = line.split(": ")
+                if items != 2:
+                    print("File is invalid")
+                    sys.exit(1)
+                else:
+                    info[key] = value
+        return info
     else:
-        from calibrate_plane import PlaneCalibration
+        print("{} is not a file".format(info_filename))
+        sys.exit(1)
+
+
+def parse_record(args):
+    if args.tracker:
+        from calibrate_tracker import TrackerRecord
+        recording = TrackerRecord(args.arm)
+        joint_set = list(recording.gen_wide_joint_positions())
+        print("Starting recording")
+        time.sleep(0.5)
+        recording.record_joints(joint_set, verbose=args.verbose)
+        recording.output_to_csv()
+        print("Run `./calibrate.py view {}` to view the recorded data points or"
+                .format(os.path.join(recording.folder, "tracker_point_cloud.csv")))
+        print("run `./calibrate.py analyze {}` to analyze the recorded data points."
+                .format(os.path.join(recording.folder, "tracker_point_cloud.csv")))
+        recording.output_info()
+    else:
+        from calibrate_plane import PlaneRecord
 
         if not args.single_palpation:
             # Full plane palpation
-            calibration = PlaneCalibration(args.arm)
-            pts = calibration.get_corners()
+            recording = PlaneRecord(args.arm)
+            pts = recording.get_corners()
             goal = copy(pts[2])
             goal.p[2] += 0.10
-            calibration.arm.move(goal)
+            recording.arm.move(goal)
             goal = copy(pts[0])
-            calibration.arm.home()
+            recording.arm.home()
             goal.p[2] += 0.090
-            calibration.arm.move(goal)
+            recording.arm.move(goal)
             goal.p[2] -= 0.085
-            calibration.arm.move(goal)
-            calibration.record_points(pts, args.samples, verbose=args.verbose)
+            recording.arm.move(goal)
+            recording.record_points(pts, args.samples, verbose=args.verbose)
             print("Run `./calibrate.py view {}` to view the recorded data points,"
-                  .format(os.path.join(calibration.folder, "plane.csv")))
+                  .format(os.path.join(recording.folder, "plane.csv")))
             print("run `./calibrate.py analyze {}` to analyze the recorded data points, or"
-                  .format(os.path.join(calibration.folder, "plane.csv")))
+                  .format(os.path.join(recording.folder, "plane.csv")))
             print("run `./calibrate.py analyze {} -w {}\nto analyze and write the resulting offset"
-                  .format(os.path.join(calibration.folder, "plane.csv"), args.write))
-            calibration.output_info()
+                  .format(os.path.join(recording.folder, "plane.csv"), args.write))
+            recording.output_info()
         else:
             # Single palpation
-            calibration = PlaneCalibration(args.arm)
+            recording = PlaneRecord(args.arm)
             print("Position the arm at the point you want to palpate at, then press enter.",
                   end=' ')
             sys.stdin.readline()
-            goal = calibration.arm.get_current_position()
+            goal = recording.arm.get_current_position()
             goal.p[2] += 0.05
-            calibration.arm.move(goal)
+            recording.arm.move(goal)
             goal.p[2] -= 0.045
-            calibration.arm.move(goal)
-            pos_v_wrench = calibration.palpate(os.path.join(calibration.folder, "single_palpation.csv"))
+            recording.arm.move(goal)
+            pos_v_wrench = recording.palpate(os.path.join(recording.folder, "single_palpation.csv"))
             if not pos_v_wrench:
                 rospy.logerr("Didn't reach surface; closing program")
                 sys.exit(1)
-            print("Using {}".format(calibration.analyze_palpation(pos_v_wrench, show_graph=True)))
-
-
-def parse_view(args):
-    # Save image to file
-    if args.save:
-        # Choose same filename as graph, but instead of csv, do svg
-        img_filename = os.path.splitext(args.input)[0] + ".png"
-    else:
-        img_filename = None
-
-    if os.path.isdir(args.input):
-        # Display entire set of palpations
-        from calibrate_plane import PlaneCalibration
-        files = [
-            os.path.join(args.input, filename)
-            for filename in os.listdir(args.input)
-            if filename.startswith("palpation")
-        ]
-        for filename in files:
-            with open(filename) as csvfile:
-                reader = csv.DictReader(csvfile)
-                print("Reading {}".format(filename))
-                pos_v_wrench = []
-                for row in reader:
-                    pos_v_wrench.append([
-                        float(row["x-position"]),
-                        float(row["y-position"]),
-                        float(row["z-position"]),
-                        float(row["wrench"]),
-                    ])
-                PlaneCalibration.analyze_palpation(pos_v_wrench, show_graph=True, img_file=img_filename)
-    elif os.path.basename(args.input).startswith("palpation"):
-        # Display singular palpation
-        with open(args.input) as csvfile:
-            reader = csv.DictReader(csvfile)
-            print("Reading {}".format(filename))
-            pos_v_wrench = []
-            for row in reader:
-                pos_v_wrench.append([
-                    float(row["x-position"]),
-                    float(row["y-position"]),
-                    float(row["z-position"]),
-                    float(row["wrench"]),
-                ])
-            PlaneCalibration.analyze_palpation(pos_v_wrench, show_graph=True, img_file=img_filename)
-    elif os.path.basename(args.input).startswith("offset_v_error"):
-        # Display offset_v_error graph
-
-        with open(args.input) as csvfile:
-            reader = csv.DictReader(csvfile)
-            offset_v_error = np.array([])
-            for row in reader:
-                offset_v_error = np.append(
-                    offset_v_error,
-                    np.array([
-                        float(row["offset"]),
-                        float(row["error"])
-                    ])
-                )
-            offset_v_error = offset_v_error.reshape(-1, 2)
-            x = np.arange(offset_v_error[0, 0], offset_v_error[-1, 0] + 1, 1)
-            equation, (min_x, min_y) = get_poly_min(offset_v_error, 2)
-            y = np.zeros(x.shape)
-            for e, c in enumerate(equation):
-                y += c * x ** e
-
-
-            # Get index of minimum of error in `offset_v_error`
-            min_idx = np.where(offset_v_error[:, 1] == np.amin(offset_v_error[:, 1]))[0][0]
-            # Use index to get offset, then convert from tenths of mm to mm
-            actual_min = offset_v_error[min_idx, 0] / 10
-
-            print("Minimum offset: {}mm".format(min_x / 10)) # convert from tenths of mm to mm
-            print("Actual min: {}mm".format(actual_min))
-
-            plt.plot(x, y, '-', color="blue")
-            plt.scatter(offset_v_error[:, 0], offset_v_error[:, 1], s=10, color="green")
-            plt.plot(min_x, min_y, 'o', color="purple")
-
-            if args.save:
-                plt.savefig(img_filename)
-
-            plt.show()
-    else:
-        plot_data(args.input, save=args.save)
-
+            print("Using {}".format(recording.analyze_palpation(pos_v_wrench, show_graph=True)))
 
 
 def parse_analyze(args):
+
     folder = os.path.dirname(args.input[0])
+    
+    info = parse_info(os.path.join(folder, "info.txt"))
 
     if not args.tracker:
         analyze_palpations(folder, show_graph=args.view)
 
     offset_v_error_filename = os.path.join(folder, "offset_v_error.csv")
 
-    offset_v_error = get_offset_v_error(offset_v_error_filename, args.input, polaris=args.tracker)
+    offset_v_error = get_offset_v_error(offset_v_error_filename, args.input, tracker=args.tracker)
     # min_offset = get_quadratic_min(offset_v_error)
     offset_correction = offset_v_error[(np.where(offset_v_error[:, 1] == np.amin(offset_v_error[:, 1]))[0][0]), 0] / 10
+    write_to_file = True if input("Write to config file? (y/N) ").tolower() == "y" else False
 
-    if args.write:
-        if os.path.exists(args.write):
+    if write_to_file:
+        if os.path.exists(info["Config File"]):
             print("Writing offset...")
-            tree = ET.parse(args.write)
+            tree = ET.parse(info["Config File"])
             root = tree.getroot()
             xpath_search_results = root.findall("./Robot/Actuator[@ActuatorID='2']/AnalogIn/VoltsToPosSI")
             if len(xpath_search_results) == 1:
@@ -349,7 +205,7 @@ def parse_analyze(args):
                 sys.exit(1)
             current_offset = float(VoltsToPosSI.get("Offset"))
             VoltsToPosSI.set("Offset", str(offset_correction + current_offset))
-            tree.write(args.write)
+            tree.write(info["Config File"])
             print(("Wrote offset: {}mm (Current offset) + {}mm (Offset correction) "
                    "= {}mm (Written offset)").format(current_offset, offset_correction,
                                                    offset_correction + current_offset))
@@ -378,12 +234,8 @@ if __name__ == "__main__":
         help="arm to record points from"
     )
     parser_record.add_argument(
-        "write",
-        help="file to write to"
-    )
-    parser_record.add_argument(
-        "-o", "--output",
-        help="folder to output data",
+        "config_file",
+        help="config file to write to"
     )
     parser_record.add_argument(
         "-t", "--tracker",
@@ -406,49 +258,20 @@ if __name__ == "__main__":
     )
     parser_record.set_defaults(func=parse_record)
 
-    parser_view = subparser.add_parser("view", help="view outputted data")
-    parser_view.add_argument("input", help="data to read from")
-    parser_view.set_defaults(func=parse_view)
-    parser_view.add_argument(
-        "--save", "-s",
-        help="save to image",
-        action="store_true"
-    )
-
     parser_analyze = subparser.add_parser(
         "analyze",
         help="analyze outputted data and find offset"
     )
     parser_analyze.add_argument(
-        "input",
-        help="data to read from",
+        "data_folder",
+        help="folder to read from",
         nargs='+'
     )
     parser_analyze.add_argument(
-        "-o", "--output",
-        help="output for the graph of offset versus error "
-        "(filename automatically increments)",
-    )
-    parser_analyze.add_argument(
-        "-n", "--no-output",
-        help="do not output graph of offset versus error",
-        default=False,
-        action="store_true"
-    )
-    parser_analyze.add_argument(
-        "-w", "--write",
-        help="write offset to file",
-        default=False,
-    )
-    parser_analyze.add_argument(
         "-v", "--view",
-        help="view graphs of palpations",
+        help="view graphs of palpations and plane/tracker point cloud",
         default=False,
         action="store_true"
-    )
-    parser_analyze.add_argument(
-        "-t", "--tracker",
-        help="use external tracker"
     )
     parser_analyze.set_defaults(func=parse_analyze)
 

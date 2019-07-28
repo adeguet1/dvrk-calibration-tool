@@ -11,9 +11,6 @@ from copy import copy
 ROB_FILE = ("/home/cnookal1/catkin_ws/src/cisst-saw"
             "/sawIntuitiveResearchKit/share/deprecated/dvpsm.rob")
 
-CONTACT_THRESH = 1.5
-PALPATE_THRESH = 2.5
-
 SEARCH_THRESH = 1.4
 
 # Minimum difference between residuals, used in analyze_palpation
