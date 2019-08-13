@@ -41,9 +41,9 @@ def parse_info(filename):
 
 
 def parse_record(args):
-    if args.tracker:
+    if args.tracker is not None:
         from tracker_recording import TrackerRecording
-        recording = TrackerRecording(args.arm)
+        recording = TrackerRecording(args.arm, args.tracker)
         joint_set = list(recording.gen_wide_joint_positions())
         print("Starting recording")
         time.sleep(0.5)
@@ -182,8 +182,8 @@ if __name__ == "__main__":
     parser_record.add_argument(
         "-t", "--tracker",
         help="use external tracker",
-        default=False,
-        action="store_true"
+        nargs='?',
+        const="/ndi/fiducials"
     )
     parser_record.add_argument(
         "-n", "--samples",
