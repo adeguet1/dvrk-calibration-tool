@@ -19,7 +19,7 @@ To record the points using a tracker, run:
 ./calibrate.py record -t {PSM_NAME} {CONFIG_FILE}
 ```
 
-**Note**: View subcommand needs to be updated to match the updates to PlaneCalibration
+**Note**: View subcommand needs to be updated to match the updates to PlaneRecording
 
 This command creates a folder in the format `{ARM_NAME}_{DATE}_{TIME}`, which stores all the values for the calibration: palpation_{row}_{column}.csv and info.txt
 

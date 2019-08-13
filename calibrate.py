@@ -15,97 +15,15 @@ from mpl_toolkits.mplot3d import Axes3D
 import PyKDL
 import rospy
 import dvrk
-from analyze_data import get_offset_v_error, get_best_fit_plane, get_poly_min, analyze_palpations
+from analyze import (get_offset_v_error, get_abs_min, analyze_palpations,
+                     show_tracker_point_cloud, show_palpation_point_cloud)
 from cisstNumericalPython import nmrRegistrationRigid
 
-def plot_data(data_file):
-    """Plots the data from the csv file data_file"""
 
-    coords = np.array([])
-
-    tracker_coords = np.array([])
-
-    joint_set = np.array([])
-
-    with open(data_file, 'r') as csvfile:
-        reader = csv.DictReader(csvfile)
-        for i, row in enumerate(reader):
-            joints = np.array([
-                float(row["joint_{}_position".format(joint_num)])
-                for joint_num in range(6)
-            ])
-            joint_set = np.append(joint_set, joints)
-            coord = np.array([
-                float(row["arm_position_x"]),
-                float(row["arm_position_y"]),
-                float(row["arm_position_z"])
-            ])
-            coords = np.append(coords, coord)
-            if len(row) == 12:
-                tracker = True
-                tracker_coord = np.array([
-                    float(row["tracker_position_x"]),
-                    float(row["tracker_position_y"]),
-                    float(row["tracker_position_z"]),
-                ])
-                tracker_coords = np.append(tracker_coords, tracker_coord)
-            else:
-                tracker = False
-
-    coords = coords.reshape(-1, 3)
-
-    if tracker:
-        tracker_coords = tracker_coords.reshape(-1, 3)
-
-    joint_set = joint_set.reshape(-1, 6)
-
-
-    if tracker:
-        transf, error = nmrRegistrationRigid(coords, tracker_coords)
-        rot_matrix = transf.Rotation()
-        translation = transf.Translation()
-        tracker_coords = (tracker_coords - translation).dot(rot_matrix)
-        print("Rigid Registration Error: {}".format(error))
-
-    if not tracker:
-        X, Y = np.meshgrid(
-            np.arange(
-                min(coords[:,0])-0.05,
-                max(coords[:,0])+0.05,
-                0.05
-            ),
-            np.arange(
-                min(coords[:,1])-0.05,
-                max(coords[:,1])+0.05,
-                0.05
-            )
-        )
-
-        (A, B, C), error = get_best_fit_plane(coords)
-        Z = A*X + B*Y + C
-
-    # plot points and fitted surface
-    fig = plt.figure()
-    ax = fig.gca(projection='3d')
-    if tracker:
-        ax.scatter(tracker_coords[:,0], tracker_coords[:,1], tracker_coords[:,2],
-            c='b', s=20, label="Tracker")
-        ax.scatter(coords[:,0], coords[:,1], coords[:,2], c='r', s=20, label="Arm")
-    else:
-        ax.plot_surface(X, Y, Z, rstride=1, cstride=1, alpha=0.2)
-        ax.scatter(coords[:,0], coords[:,1], coords[:,2], c='r', s=20)
-
-    plt.xlabel('X')
-    plt.ylabel('Y')
-    ax.set_zlabel('Z')
-    ax.legend()
-    plt.show()
-
-
-def parse_info(info_filename):
+def parse_info(filename):
     info = {}
-    if os.path.exists(info_filename):
-        with open(info_filename) as info_file:
+    if os.path.exists(filename):
+        with open(filename) as info_file:
             info_text = info_file.read()
             for line in info_text.splitlines():
                 items = line.split(": ")
@@ -116,30 +34,31 @@ def parse_info(info_filename):
                     info[key] = value
         return info
     else:
-        print("{} is not a file".format(info_filename))
-        sys.exit(1)
+        if os.path.isdir(filename):
+            raise IsADirectoryError(21, "Is a directory", filename)
+        else:
+            raise FileNotFoundError(2, "No such file or directory", filename)
 
 
 def parse_record(args):
     if args.tracker:
-        from calibrate_tracker import TrackerRecord
-        recording = TrackerRecord(args.arm)
+        from tracker_recording import TrackerRecording
+        recording = TrackerRecording(args.arm)
         joint_set = list(recording.gen_wide_joint_positions())
         print("Starting recording")
         time.sleep(0.5)
         recording.record_joints(joint_set, verbose=args.verbose)
         recording.output_to_csv()
-        print("Run `./calibrate.py view {}` to view the recorded data points or"
-                .format(os.path.join(recording.folder, "tracker_point_cloud.csv")))
-        print("run `./calibrate.py analyze {}` to analyze the recorded data points."
-                .format(os.path.join(recording.folder, "tracker_point_cloud.csv")))
         recording.output_info()
+        print("run `./calibrate.py analyze {}`\n"
+              "    to analyze the recorded data points."
+                .format(recording.folder)
     else:
-        from calibrate_plane import PlaneRecord
+        from plane_recording import PlaneRecording
 
         if not args.single_palpation:
             # Full plane palpation
-            recording = PlaneRecord(args.arm)
+            recording = PlaneRecording(args.arm)
             pts = recording.get_corners()
             goal = copy(pts[2])
             goal.p[2] += 0.10
@@ -151,64 +70,87 @@ def parse_record(args):
             goal.p[2] -= 0.085
             recording.arm.move(goal)
             recording.record_points(pts, args.samples, verbose=args.verbose)
-            print("Run `./calibrate.py view {}` to view the recorded data points,"
-                  .format(os.path.join(recording.folder, "plane.csv")))
-            print("run `./calibrate.py analyze {}` to analyze the recorded data points, or"
-                  .format(os.path.join(recording.folder, "plane.csv")))
-            print("run `./calibrate.py analyze {} -w {}\nto analyze and write the resulting offset"
-                  .format(os.path.join(recording.folder, "plane.csv"), args.write))
+            print(("Run `./calibrate.py analyze {}`\n"
+                   "to analyze the recorded data points")
+                  .format(recording.folder))
             recording.output_info()
         else:
             # Single palpation
-            recording = PlaneRecord(args.arm)
-            print("Position the arm at the point you want to palpate at, then press enter.",
-                  end=' ')
+            recording = PlaneRecording(args.arm)
+            print(("Position the arm at the point you want to palpate at,"
+                   "then press enter."),
+                  end=' '))
             sys.stdin.readline()
             goal = recording.arm.get_current_position()
             goal.p[2] += 0.05
             recording.arm.move(goal)
             goal.p[2] -= 0.045
             recording.arm.move(goal)
-            pos_v_wrench = recording.palpate(os.path.join(recording.folder, "single_palpation.csv"))
+            palp_fn = os.path.join(recording.folder, "single_palpation.csv")
+            pos_v_wrench = recording.palpate(palp_fn)
             if not pos_v_wrench:
                 rospy.logerr("Didn't reach surface; closing program")
                 sys.exit(1)
-            print("Using {}".format(recording.analyze_palpation(pos_v_wrench, show_graph=True)))
+            arm_position_z = recording.analyze_palpation(pos_v_wrench,
+                                                         show_graph=True)
+            print("Using {}".format(arm_position_z))
 
 
 def parse_analyze(args):
-
     folder = os.path.dirname(args.input[0])
-    
+
     info = parse_info(os.path.join(folder, "info.txt"))
 
-    if not args.tracker:
-        analyze_palpations(folder, show_graph=args.view)
+    if not info["tracker"]:
+        print("Using external tracker calibration...")
+        analyze_palpations(
+            folder, show_palpations=args.view_palpations
+        )
+        if args.show_point_cloud:
+            show_palpation_point_cloud(os.path.join(
+                folder,
+                "plane.csv"
+            ))
+    else:
+        print("Using calibration sans external sensors")
+        if args.show_point_cloud:
+            show_tracker_point_cloud(os.path.join(
+                folder,
+                "tracker_point_cloud.csv"
+            ))
+
 
     offset_v_error_filename = os.path.join(folder, "offset_v_error.csv")
 
-    offset_v_error = get_offset_v_error(offset_v_error_filename, args.input, tracker=args.tracker)
-    # min_offset = get_quadratic_min(offset_v_error)
-    offset_correction = offset_v_error[(np.where(offset_v_error[:, 1] == np.amin(offset_v_error[:, 1]))[0][0]), 0] / 10
-    write_to_file = True if input("Write to config file? (y/N) ").tolower() == "y" else False
+    offset_v_error = get_offset_v_error(offset_v_error_filename,
+                                        args.input,
+                                        tracker=args.tracker)
+    offset_correction = get_abs_min(offset_v_error)[0] # Get x value of abs min
+    write_to_file_input = (input("Write to config file? (y/N) ")
+                           .strip().lower())
 
-    if write_to_file:
+    if write_to_file_input == 'y':
         if os.path.exists(info["Config File"]):
             print("Writing offset...")
             tree = ET.parse(info["Config File"])
             root = tree.getroot()
-            xpath_search_results = root.findall("./Robot/Actuator[@ActuatorID='2']/AnalogIn/VoltsToPosSI")
+            xpath_search_results = root.findall("./Robot/"
+                                                "Actuator[@ActuatorID='2']/"
+                                                "AnalogIn/"
+                                                "VoltsToPosSI")
             if len(xpath_search_results) == 1:
                 VoltsToPosSI = xpath_search_results[0]
             else:
-                print("Error: There must be exactly one Actuator with ActuatorID=2")
+                print("Error: There must be exactly one Actuator 2")
                 sys.exit(1)
             current_offset = float(VoltsToPosSI.get("Offset"))
             VoltsToPosSI.set("Offset", str(offset_correction + current_offset))
             tree.write(info["Config File"])
-            print(("Wrote offset: {}mm (Current offset) + {}mm (Offset correction) "
-                   "= {}mm (Written offset)").format(current_offset, offset_correction,
-                                                   offset_correction + current_offset))
+            print(("Wrote offset: {}mm (Current offset) "
+                   "+ {}mm (Offset correction) "
+                   "= {}mm (Written offset)")
+                   .format(current_offset, offset_correction,
+                           offset_correction + current_offset))
         else:
             print("Error: File does not exist")
             sys.exit(1)
@@ -268,13 +210,19 @@ if __name__ == "__main__":
         nargs='+'
     )
     parser_analyze.add_argument(
-        "-v", "--view",
-        help="view graphs of palpations and plane/tracker point cloud",
+        "--view-palpations",
+        help="view graph of palpations",
+        default=False,
+        action="store_true"
+    )
+    parser_analyze.add_argument(
+        "--view-point-cloud",
+        help="view plane/tracker point cloud",
         default=False,
         action="store_true"
     )
     parser_analyze.set_defaults(func=parse_analyze)
 
     args = parser.parse_args()
-    args.func(args)
 
+    args.func(args)

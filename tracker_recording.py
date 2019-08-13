@@ -5,14 +5,14 @@ import time
 import numpy as np
 import PyKDL
 import rospy
-from record import Record
+from recording import Recording
 from marker import Marker
 from copy import copy
 
-class TrackerCalibration(Calibration):
+class TrackerRecording(Recording):
 
     def __init__(self, robot_name, marker_namespace):
-        super(TrackerCalibration, self).__init__(robot_name)
+        super(TrackerRecording, self).__init__(robot_name)
         self.marker = Marker(marker_namespace)
         self.tracker = True
 
@@ -51,15 +51,17 @@ class TrackerCalibration(Calibration):
             time.sleep(0.5)
             rot_matrix = self.arm.get_current_position().M
             marker_pos = self.marker.get_current_position()
-            # check difference in angle 
+            # check difference in angle
             rot_diff = self.ROT_MATRIX * rot_matrix.Inverse()
             # if difference in angle is > 2 degrees
             if np.rad2deg(rot_diff.GetRotAngle()[0]) > 2:
-                rospy.logwarn("Disregarding bad orientation:\n{}".format(rot_matrix))
+                rospy.logwarn("Disregarding bad orientation:\n{}"
+                              .format(rot_matrix))
                 bad_rots += 1
             elif marker_pos is None:
                 rospy.logwarn("Disregarding bad data received from Tracker")
             else:
+                # Add current position (from tracker and arm) to data
                 arm_coord = self.arm.get_current_position().p
                 data_dict = {
                     "arm_position_x": arm_coord[0],
@@ -69,19 +71,26 @@ class TrackerCalibration(Calibration):
                     "tracker_position_y": marker_pos[1],
                     "tracker_position_z": marker_pos[2],
                 }
-                for joint_num, joint_pos in enumerate(self.arm.get_current_joint_position()):
-                    data_dict.update({"joint_{}_position".format(joint_num): joint_pos})
+                joints = self.arm.get_current_joint_position()
+                for joint_num, joint_pos in enumerate(joints):
+                    data_dict.update({
+                        "joint_{}_position".format(joint_num): joint_pos
+                    })
                 self.data.append(data_dict)
             block = int(toolbar_width * i/(npoints - 1))
             arrows = '-' * block if block < 1 else (('-' * block)[:-1] + '>')
-            sys.stdout.write("\r[{}{}]".format(arrows, ' ' * (toolbar_width - block)))
+            sys.stdout.write("\r[{}{}]".format(arrows,
+                                               ' ' * (toolbar_width - block)))
             sys.stdout.flush()
 
         end_time = time.time()
         duration = end_time - start_time
-        print("Finished in {}m {}s".format(int(duration) // 60, int(duration % 60)))
+        duration_min = int(duration) // 60
+        duration_sec = int(duration % 60)
+        print("Finished in {}m {}s".format(duration_min, duration_sec))
         print(rospy.get_caller_id(), '<- recording complete')
-        print("Number of bad points: {}".format(self.marker.n_bad_callbacks + bad_rots))
+        print("Number of bad points: {}"
+              .format(self.marker.n_bad_callbacks + bad_rots))
 
     def output_to_csv(self):
         """Outputs contents of self.data to fpath"""
@@ -91,4 +100,3 @@ class TrackerCalibration(Calibration):
             writer = csv.DictWriter(csvfile, fieldnames=self.data[0].keys())
             writer.writeheader()
             writer.writerows(self.data)
-

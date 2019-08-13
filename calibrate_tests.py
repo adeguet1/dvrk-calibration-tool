@@ -1,7 +1,7 @@
 import unittest
 import numpy as np
 
-class TestCalibration(unittest.TestCase):
+class TestRecording(unittest.TestCase):
 
     def test_distance(self):
         A, B, C = (0.5, 0.6, 0.7)
@@ -11,7 +11,7 @@ class TestCalibration(unittest.TestCase):
         normal = direction / np.linalg.norm(direction)
         dist = np.dot(normal, pt - np.array([0, 0, C]))
         projection = pt - dist * normal
-        
+
         self.assertAlmostEqual(
             A * projection[0] +
             B * projection[1] +

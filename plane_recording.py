@@ -5,9 +5,9 @@ import csv
 import time
 import PyKDL
 import rospy
-from record import Record
+from record import Recording
 
-class PlaneRecord(Record):
+class PlaneRecording(Recording):
 
     CONTACT_THRESH = 1.5
     PALPATE_THRESH = 2.5
@@ -44,8 +44,9 @@ class PlaneRecord(Record):
             # For each row, store 2 vectors as the right side and left side
             rightside = pts[1].p + row / (nsamples - 1) * (pts[2].p - pts[1].p)
             leftside = pts[0].p + row / (nsamples - 1) * (pts[2].p - pts[1].p)
-            
-            # Switch j from increasing to decreasing based on if the row is even or odd
+
+            # Switch j from increasing to decreasing
+            # based on if the row is even or odd
             print("moving arm to row ", row)
             if row % 2 == 0:
                 args = (nsamples,)
@@ -54,7 +55,7 @@ class PlaneRecord(Record):
 
             for col in range(*args):
                 print("\tmoving arm to column ", col)
-                
+
                 # Move from right side to left side or vice versa in steps
                 goal = PyKDL.Frame(self.ROT_MATRIX)
                 goal.p = leftside + (col
@@ -71,14 +72,16 @@ class PlaneRecord(Record):
                     "palpation_{}_{}.csv".format(row, col)
                 )
 
-                # Returns a numpy array containing the position, joint angles vs the wrench
+                # Returns a numpy array containing
+                # the position,joint angles vs the wrench
                 pos_v_wrench = self.palpate(palpate_file)
 
                 if not pos_v_wrench:
                     rospy.logerr("Didn't reach surface. Closing program")
                     sys.exit(1)
 
-                # Move back up after palpation to prevent dragging against the surface
+                # Move back up after palpation
+                # to prevent dragging against the surface
                 goal = self.arm.get_desired_position()
                 goal.p[2] += 0.02
                 self.arm.move(goal)
@@ -100,13 +103,13 @@ class PlaneRecord(Record):
         MM = 0.001
         TENTH_MM = 0.0001
 
-        # Calculate number of steps required to move 2 cm with an increment of 1 mm
+        # Calculate number of steps required
+        # to move 2 cm with an increment of 1 mm
         STEPS_MM = int(0.06/MM)
 
-        # Calculate number of steps required to move 4 mm with an increment of 0.1 mm
+        # Calculate number of steps required
+        # to move 4 mm with an increment of 0.1 mm
         STEPS_TENTH_MM = int(0.010/TENTH_MM)
-
-        oldtime = time.time()
 
         for i in range(STEPS_MM):
             goal.p[2] -= MM
@@ -124,9 +127,6 @@ class PlaneRecord(Record):
 
         time.sleep(0.5)
         self.arm.move(goal)
-
-        # print(time.time() - oldtime)
-        oldtime = time.time()
 
         for i in range(STEPS_TENTH_MM): # in tenths of millimeters
             goal.p[2] -= TENTH_MM
@@ -146,8 +146,6 @@ class PlaneRecord(Record):
             elif i == STEPS_TENTH_MM - 1:
                 print("wasn't able to recheck")
                 return False
-
-        # print(time.time() - oldtime)
 
         outfile = open(output_file, 'w')
         fieldnames = [
@@ -183,6 +181,3 @@ class PlaneRecord(Record):
         self.arm.move(initial)
 
         return pos_v_wrench
-
-
-

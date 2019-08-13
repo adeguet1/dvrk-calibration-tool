@@ -7,7 +7,7 @@ import PyKDL
 import rospy
 import dvrk
 
-class Record(object):
+class Recording(object):
 
     ROT_MATRIX = PyKDL.Rotation(
         1,    0,    0,
@@ -32,11 +32,12 @@ class Record(object):
 
         tree = ET.parse(config_file)
         root = tree.getroot()
-        xpath_search_results = root.findall("./Robot/Actuator[@ActuatorID='2']/AnalygIn/VoltsToPosSI")
+        xpath_search_results = root.findall("./Robot/Actuator[@ActuatorID='2']"
+                                            "/AnalygIn/VoltsToPosSI")
         if len(xpath_search_results) == 1:
             VoltsToPosSI = xpath_search_results[0]
         else:
-            print("Error: There must be exactly one Actuator with ActuatorID=2")
+            print("Error: There must be exactly Actuator 2")
             sys.exit(1)
 
         current_offset = float(VoltsToPosSI.get("Offset"))
@@ -44,7 +45,9 @@ class Record(object):
         self.info["Current Offset"] = current_offset
 
     def home(self):
-        "Goes to x = 0, y = 0, extends joint 2 past the cannula, and sets home"
+        """
+        Goes to x = 0, y = 0, extends joint 2 past the cannula, and sets home
+        """
         # make sure the camera is past the cannula and tool vertical
         print("starting home")
         self.arm.home()
