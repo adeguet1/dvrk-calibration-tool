@@ -15,7 +15,7 @@ from mpl_toolkits.mplot3d import Axes3D
 import PyKDL
 import rospy
 import dvrk
-from analyze import (get_offset_v_error, get_abs_min, analyze_palpations,
+from analyze import (get_offset_v_error, get_min_value, analyze_palpations,
                      show_tracker_point_cloud, show_palpation_point_cloud)
 from cisstNumericalPython import nmrRegistrationRigid
 
@@ -27,17 +27,18 @@ def parse_info(filename):
             info_text = info_file.read()
             for line in info_text.splitlines():
                 items = line.split(": ")
-                if items != 2:
+                if len(items) != 2:
                     print("File is invalid")
                     sys.exit(1)
                 else:
+                    key, value = items
                     info[key] = value
         return info
     else:
         if os.path.isdir(filename):
-            raise IsADirectoryError(21, "Is a directory", filename)
+            raise IOError(21, "Is a directory", filename)
         else:
-            raise FileNotFoundError(2, "No such file or directory", filename)
+            raise IOError(2, "No such file or directory", filename)
 
 
 def parse_record(args):
@@ -97,23 +98,28 @@ def parse_record(args):
 
 
 def parse_analyze(args):
-    folder = os.path.dirname(args.input[0])
+    folder = os.path.dirname(args.data_folder[0])
 
     info = parse_info(os.path.join(folder, "info.txt"))
 
-    if bool(info["tracker"]):
-        print("Using calibration sans external sensors")
-        if args.show_point_cloud:
+    if info["tracker"] == "True":
+        is_tracker = True
+    elif info["tracker"] == "False":
+        is_tracker = False
+
+    if is_tracker:
+        print("Using external tracker calibration...")
+        if args.view_point_cloud:
             show_tracker_point_cloud(os.path.join(
                 folder,
                 "tracker_point_cloud.csv"
             ))
     else:
-        print("Using external tracker calibration...")
+        print("Using calibration sans external sensors...")
         analyze_palpations(
             folder, show_palpations=args.view_palpations
         )
-        if args.show_point_cloud:
+        if args.view_point_cloud:
             show_palpation_point_cloud(os.path.join(
                 folder,
                 "plane.csv"
@@ -123,11 +129,16 @@ def parse_analyze(args):
     offset_v_error_filename = os.path.join(folder, "offset_v_error.csv")
 
     offset_v_error = get_offset_v_error(offset_v_error_filename,
-                                        args.input,
-                                        tracker=args.tracker)
-    offset_correction = get_abs_min(offset_v_error)[0] # Get x value of abs min
-    write_to_file_input = (input("Write to config file? (y/N) ")
-                           .strip().lower())
+                                        args.data_folder, tracker=is_tracker)
+    # Get offset correction in tenths of millimeter
+    offset_correction = get_min_value(offset_v_error)[0] # Get x value of abs min
+
+    # Convert correction from tenths of millimeter to milimeter
+    offset_correction /= 10
+
+    print("Offset correction: {}mm".format(offset_correction))
+    print("Write to config file? (y/N) ", end=' ')
+    write_to_file_input = sys.stdin.readline().strip().lower()
 
     if write_to_file_input == 'y':
         if os.path.exists(info["Config File"]):
@@ -154,8 +165,6 @@ def parse_analyze(args):
         else:
             print("Error: File does not exist")
             sys.exit(1)
-    else:
-        print("Offset correction: {}mm".format(offset_correction))
 
 
 if __name__ == "__main__":
@@ -226,3 +235,4 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     args.func(args)
+

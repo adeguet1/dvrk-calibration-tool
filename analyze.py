@@ -1,16 +1,18 @@
 from __future__ import division, print_function
+import sys
 import csv
 import os.path
 import numpy as np
 import scipy.linalg
+import rospy
 import cisstRobotPython as crp
 import matplotlib.pyplot as plt
 from cisstNumericalPython import nmrRegistrationRigid
 from copy import copy
 import re
 
-ROB_FILE = ("/home/cnookal1/catkin_ws/src/cisst-saw"
-            "/sawIntuitiveResearchKit/share/deprecated/dvpsm.rob")
+ROB_FILE = ("/home/chaitu/catkin_ws/src/cisst-saw/"
+            "sawIntuitiveResearchKit/share/deprecated/dvpsm.rob")
 
 SEARCH_THRESH = 1.4
 
@@ -152,19 +154,21 @@ def get_poly_min(pts, deg=2):
     equation = polyfit.convert().coef
     x = np.arange(pts[0, 0], pts[-1, 0] + 0.0001, 0.0001)
     y = np.zeros(x.shape)
-    min_x, min_y = get_abs_min(pts)
+    graph = np.array([x, y])
+    min_x, min_y = get_min_value(graph.T)
 
     return equation, np.array([min_x, min_y])
 
 def get_min_value(pts):
-    min_y = np.amin(pts{:, 1])
+    y = pts[:, 1]
+    min_y = np.amin(y)
     # Returns list of points where y == min_y
     # choose first point as min_idx
-    min_idx = np.where(y == min_y)[0]
+    min_idx = np.where(y == min_y)[0][0]
     min_x = pts[min_idx, 0]
     return min_x, min_y
 
-def get_offset_v_error(offset_v_error_filename, data_files, tracker=False):
+def get_offset_v_error(offset_v_error_filename, data_folders, tracker=False):
 
     rob = crp.robManipulator()
     rob.LoadRobot(ROB_FILE)
@@ -178,11 +182,16 @@ def get_offset_v_error(offset_v_error_filename, data_files, tracker=False):
         tracker_coords = np.array([])
         tracker_coord_set = []
 
-    # Accepts n number of data_files
+    # Accepts n number of data_folders
 
-    # Loop through data_files and put joint sets into `joint_sets` variable
+    # Loop through data_folders and put joint sets into `joint_sets` variable
     # and coord set into `coord_set` variable
-    for data_file in data_files:
+    for data_folder in data_folders:
+        if tracker:
+            data_file = os.path.join(data_folder, "tracker_point_cloud.csv")
+        else:
+            data_file = os.path.join(data_folder, "plane.csv")
+
         with open(data_file) as infile:
             reader = csv.DictReader(infile)
             for row in reader:
@@ -247,6 +256,7 @@ def get_offset_v_error(offset_v_error_filename, data_files, tracker=False):
                                                          tracker_coord_set)
                 ])
             else:
+                # import pudb; pudb.set_trace()  # XXX BREAKPOINT
                 # Use plane of best fit if palpation is used
                 error = sum([
                     get_best_fit_plane(coords_fk)[1] # Returns equation, err
@@ -281,60 +291,80 @@ def analyze_palpations(folder, show_palpations=False):
         sys.exit(1)
 
     # Ignore non-palpation files, e. g. offset_v_error.csv or plane.csv
-    palpation_files = [
+    palpation_files = np.array([
         f
         for f in os.listdir(folder)
         if f.startswith("palpation")
-    ]
-    rows = cols = int(len(palpation_files) ** (1/2))
-    # Generate m x n grid of plots of palpations
-    fig, ax = plt.subplots(rows, cols)
+    ])
+
     palpation_files.sort()
-    for palpation_file in palpation_files:
 
-        with open(os.path.join(folder, palpation_file)) as infile:
-            reader = csv.DictReader(infile)
-            pos_v_wrench = []
-            for row in reader:
-                joints = [
-                    float(row["joint_{}_position".format(i)]) for i in range(6)
-                ]
+    dim = int(len(palpation_files) ** (1/2))
 
-                pos_v_wrench.append((
-                    [
-                        float(row["arm_position_x"]),
-                        float(row["arm_position_y"]),
-                        float(row["arm_position_z"]),
-                        float(row["wrench"])
+    palpation_files = palpation_files.reshape(dim, dim)
+
+    # Generate m x n grid of plots of palpations
+    palpation_files.sort()
+
+    row_len = (dim + 1) // 2
+
+    for row_idx, row in enumerate(palpation_files):
+
+        if show_palpations:
+            fig, ax = plt.subplots(2, row_len)
+
+        for col_idx, palpation_file in enumerate(row):
+
+
+            with open(os.path.join(folder, palpation_file)) as infile:
+                reader = csv.DictReader(infile)
+                pos_v_wrench = []
+                for row in reader:
+                    joints = [
+                        float(row["joint_{}_position".format(i)]) for i in range(6)
                     ]
-                    + joints
-                ))
 
-            if show_graph:
-                row, col = map(int, re.findall("\d+", palpation_file))
+                    pos_v_wrench.append((
+                        [
+                            float(row["arm_position_x"]),
+                            float(row["arm_position_y"]),
+                            float(row["arm_position_z"]),
+                            float(row["wrench"])
+                        ]
+                        + joints
+                    ))
+
+                if show_palpations:
+                    # Subplot row and column
+                    sp_row = col_idx // row_len
+                    sp_col = col_idx % row_len
+
+                    pos, joints = analyze_palpation(pos_v_wrench,
+                                                    ax=ax[sp_row, sp_col])
+
                 pos, joints = analyze_palpation(pos_v_wrench,
-                                                show_graph=ax[row, col])
+                                                ax=None)
 
-            if pos is None:
-                rospy.logwarn("Didn't get enough data;"
-                              "disregarding point and continuing to next")
-                continue
+                if pos is None:
+                    rospy.logwarn("Didn't get enough data;"
+                                "disregarding point and continuing to next")
+                    continue
 
-            data_dict = {
-                "arm_position_x": pos[0],
-                "arm_position_y": pos[1],
-                "arm_position_z": pos[2],
-            }
+                data_dict = {
+                    "arm_position_x": pos[0],
+                    "arm_position_y": pos[1],
+                    "arm_position_z": pos[2],
+                }
 
-            for joint_num, joint_pos in enumerate(joints):
-                data_dict.update({
-                    "joint_{}_position".format(joint_num): joint_pos
-                })
+                for joint_num, joint_pos in enumerate(joints):
+                    data_dict.update({
+                        "joint_{}_position".format(joint_num): joint_pos
+                    })
 
-            data.append(copy(data_dict))
+                data.append(copy(data_dict))
 
-    if show_palpations:
-        plt.show()
+        if show_palpations:
+            plt.show()
 
     # Output contents of `data` to csv
     with open(os.path.join(folder, "plane.csv"), 'w') as outfile:
@@ -342,7 +372,7 @@ def analyze_palpations(folder, show_palpations=False):
         csvfile.writeheader()
         csvfile.writerows(data)
 
-def analyze_palpation(pos_v_wrench, show_graph=None):
+def analyze_palpation(pos_v_wrench, ax=None):
     """
     Analyze palpation with the option to show graph
     """
@@ -424,32 +454,32 @@ def analyze_palpation(pos_v_wrench, show_graph=None):
             joints = (pos_v_wrench[i, 4:] + pos_v_wrench[i-1, 4:])/2
             break
 
-    if show_graph is not None:
+    if ax is not None:
 
         # Plot best fit lines
-        figure.plot(data_moving[:, 0],
+        ax.plot(data_moving[:, 0],
                     moving_eqn[0] * data_moving[:, 0] + moving_eqn[1],
                     '-', color='red')
-        figure.plot(data_contact[:, 0],
+        ax.plot(data_contact[:, 0],
                     contact_eqn[0] * data_contact[:, 0] + contact_eqn[1],
                     '-', color='blue')
-        figure.plot(pos[2],
+        ax.plot(pos[2],
                     contact_eqn[0] * pos[2] + contact_eqn[1],
                     'o', color='purple', label="Intersection")
 
         # First plot all points, then plot the contact points and moving points
-        figure.scatter(z_v_wrench[:,0],
+        ax.scatter(z_v_wrench[:,0],
                        z_v_wrench[:,1],
                        s=10, color='green', label="Outliers")
-        figure.scatter(data_moving[:,0],
+        ax.scatter(data_moving[:,0],
                        data_moving[:,1],
                        s=10, color='red', label="Points of movement")
-        figure.scatter(data_contact[:,0],
+        ax.scatter(data_contact[:,0],
                        data_contact[:,1],
                        s=10, color='blue', label="Points of contact")
-        figure.legend()
-        figure.xlabel("Z")
-        figure.ylabel("Wrench")
+        # ax.legend()
+        # ax.xlabel("Z")
+        # ax.ylabel("Wrench")
 
     return pos, joints
 

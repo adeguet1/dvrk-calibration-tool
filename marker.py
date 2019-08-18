@@ -12,7 +12,7 @@ class Marker:
         self.bad_callback = False
         self.n_bad_callbacks = 0
         self.total_points = []
-    
+
     def callback(self, data):
         self.total_points = data.points
         if len(data.points) > 1:
@@ -27,7 +27,7 @@ class Marker:
                 [data.points[0].x, data.points[0].y, data.points[0].z],
                 dtype=np.float64
             )
-    
+
     def get_current_position(self):
         if self.bad_callback:
             rospy.logerr("There was a bad callback (there must be only one point received)\n"
