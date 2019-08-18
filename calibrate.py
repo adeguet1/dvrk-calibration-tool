@@ -52,7 +52,7 @@ def parse_record(args):
         recording.output_info()
         print("run `./calibrate.py analyze {}`\n"
               "    to analyze the recorded data points."
-                .format(recording.folder)
+                .format(recording.folder))
     else:
         from plane_recording import PlaneRecording
 
@@ -79,7 +79,7 @@ def parse_record(args):
             recording = PlaneRecording(args.arm)
             print(("Position the arm at the point you want to palpate at,"
                    "then press enter."),
-                  end=' '))
+                   end=' ')
             sys.stdin.readline()
             goal = recording.arm.get_current_position()
             goal.p[2] += 0.05
@@ -101,7 +101,14 @@ def parse_analyze(args):
 
     info = parse_info(os.path.join(folder, "info.txt"))
 
-    if not info["tracker"]:
+    if bool(info["tracker"]):
+        print("Using calibration sans external sensors")
+        if args.show_point_cloud:
+            show_tracker_point_cloud(os.path.join(
+                folder,
+                "tracker_point_cloud.csv"
+            ))
+    else:
         print("Using external tracker calibration...")
         analyze_palpations(
             folder, show_palpations=args.view_palpations
@@ -110,13 +117,6 @@ def parse_analyze(args):
             show_palpation_point_cloud(os.path.join(
                 folder,
                 "plane.csv"
-            ))
-    else:
-        print("Using calibration sans external sensors")
-        if args.show_point_cloud:
-            show_tracker_point_cloud(os.path.join(
-                folder,
-                "tracker_point_cloud.csv"
             ))
 
 
