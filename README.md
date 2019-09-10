@@ -19,28 +19,7 @@ To record the points using a tracker, run:
 ./calibrate.py record -t {PSM_NAME} {CONFIG_FILE}
 ```
 
-**Note**: View subcommand needs to be updated to match the updates to PlaneRecording
-
 This command creates a folder in the format `{ARM_NAME}_{DATE}_{TIME}`, which stores all the values for the calibration: palpation_{row}_{column}.csv and info.txt
-
-After running the command, if you want to view the resulting plane from the palpations, run:
-```bash
-./calibrate.py view data/{ARM_NAME}_{DATE}_{TIME}/plane.csv
-```
-
-If you want to view the resulting point cloud from a Polaris, run:
-```bash
-./calibrate.py view data/{ARM_NAME}_{DATE}_{TIME}/polaris_point_cloud.csv
-```
-
-If you want to view all the palpations, run:
-```bash
-./calibrate.py view data/{ARM_NAME}_{DATE}_{TIME}/
-```
-If you want to view a single palpation, run:
-```bash
-./calibrate.py view data/{ARM_NAME}_{DATE}_{TIME}/palpation_{ROW}_{COLUMN}.csv
-```
 
 After this, to get the offset from the data recorded by palpations, run:
 ```bash
@@ -54,7 +33,4 @@ If you want to get the offset from the data recorded by a Polaris, run:
 ./calibrate.py analyze -t data/{ARM_NAME}_{DATE}_{TIME}
 ```
 
-After getting the offset you may want to view the resulting offset vs error graph, by running:
-```bash
-./calibrate.py view data/{ARM_NAME}_{DATE}_{TIME}/offset_v_error.csv
-```
+If you would like to view the data while analyzing it, use the options `--view-palpations`, `--view-point-cloud`, and/or `--view-offset-error`. To view all at once, use `--view-all`.
