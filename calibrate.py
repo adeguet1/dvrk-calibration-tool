@@ -5,19 +5,11 @@ import sys
 import os.path
 from copy import copy
 import time
-from datetime import datetime
 import argparse
 import xml.etree.ElementTree as ET
-import csv
-import numpy as np
-import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D
-import PyKDL
 import rospy
-import dvrk
 from analyze import (get_offset_v_error, get_min_value, analyze_palpations,
                      show_tracker_point_cloud, show_palpation_point_cloud)
-from cisstNumericalPython import nmrRegistrationRigid
 
 
 def parse_info(filename):
@@ -42,62 +34,64 @@ def parse_info(filename):
 
 
 def parse_record(args):
-    if args.tracker is not None:
-        from tracker_recording import TrackerRecording
-        recording = TrackerRecording(args.arm, args.tracker)
-        joint_set = list(recording.gen_wide_joint_positions())
-        print("Starting recording")
-        time.sleep(0.5)
-        recording.record_joints(joint_set, verbose=args.verbose)
-        recording.output_to_csv()
-        recording.output_info()
-        print("run `./calibrate.py analyze {}`\n"
-              "    to analyze the recorded data points."
-                .format(recording.folder))
-    else:
-        from plane_recording import PlaneRecording
-
-        if not args.single_palpation:
-            # Full plane palpation
-            recording = PlaneRecording(args.arm)
-            pts = recording.get_corners()
-            goal = copy(pts[2])
-            goal.p[2] += 0.10
-            recording.arm.move(goal)
-            goal = copy(pts[0])
-            recording.arm.home()
-            goal.p[2] += 0.090
-            recording.arm.move(goal)
-            goal.p[2] -= 0.085
-            recording.arm.move(goal)
-            recording.record_points(pts, args.samples, verbose=args.verbose)
-            print(("Run `./calibrate.py analyze {}`\n"
-                   "to analyze the recorded data points")
-                  .format(recording.folder))
+    for i in range(args.n):
+        if args.tracker is not None:
+            from tracker_recording import TrackerRecording
+            recording = TrackerRecording(args.arm, args.tracker)
+            joint_set = list(recording.gen_wide_joint_positions())
+            print("Starting recording")
+            time.sleep(0.5)
+            recording.record_joints(joint_set, verbose=args.verbose)
+            recording.output_to_csv()
             recording.output_info()
+            print("run `./calibrate.py analyze {}`\n"
+                "    to analyze the recorded data points."
+                .format(recording.folder))
         else:
-            # Single palpation
-            recording = PlaneRecording(args.arm)
-            print(("Position the arm at the point you want to palpate at,"
-                   "then press enter."),
-                   end=' ')
-            sys.stdin.readline()
-            goal = recording.arm.get_current_position()
-            goal.p[2] += 0.05
-            recording.arm.move(goal)
-            goal.p[2] -= 0.045
-            recording.arm.move(goal)
-            palp_fn = os.path.join(recording.folder, "single_palpation.csv")
-            pos_v_wrench = recording.palpate(palp_fn)
-            if not pos_v_wrench:
-                rospy.logerr("Didn't reach surface; closing program")
-                sys.exit(1)
-            arm_position_z = recording.analyze_palpation(pos_v_wrench,
-                                                         show_graph=True)
-            print("Using {}".format(arm_position_z))
+            from plane_recording import PlaneRecording
+
+            if not args.single_palpation:
+                # Full plane palpation
+                recording = PlaneRecording(args.arm)
+                pts = recording.get_corners()
+                goal = copy(pts[2])
+                goal.p[2] += 0.10
+                recording.arm.move(goal)
+                goal = copy(pts[0])
+                recording.arm.home()
+                goal.p[2] += 0.090
+                recording.arm.move(goal)
+                goal.p[2] -= 0.085
+                recording.arm.move(goal)
+                recording.record_points(pts, args.samples, verbose=args.verbose)
+                print(("Run `./calibrate.py analyze {}`\n"
+                    "to analyze the recorded data points")
+                    .format(recording.folder))
+                recording.output_info()
+            else:
+                # Single palpation
+                recording = PlaneRecording(args.arm)
+                print(("Position the arm at the point you want to palpate at,"
+                    "then press enter."),
+                    end=' ')
+                sys.stdin.readline()
+                goal = recording.arm.get_current_position()
+                goal.p[2] += 0.05
+                recording.arm.move(goal)
+                goal.p[2] -= 0.045
+                recording.arm.move(goal)
+                palp_fn = os.path.join(recording.folder, "single_palpation.csv")
+                pos_v_wrench = recording.palpate(palp_fn)
+                if not pos_v_wrench:
+                    rospy.logerr("Didn't reach surface; closing program")
+                    sys.exit(1)
+                arm_position_z = recording.analyze_palpation(pos_v_wrench,
+                                                            show_graph=True)
+                print("Using {}".format(arm_position_z))
 
 
 def parse_analyze(args):
+    # For now only uses one set of data
     folder = os.path.dirname(args.data_folder[0])
 
     info = parse_info(os.path.join(folder, "info.txt"))
@@ -109,7 +103,7 @@ def parse_analyze(args):
 
     if is_tracker:
         print("Using external tracker calibration...")
-        if args.view_point_cloud:
+        if args.view_point_cloud or args.view_all:
             show_tracker_point_cloud(os.path.join(
                 folder,
                 "tracker_point_cloud.csv"
@@ -117,21 +111,25 @@ def parse_analyze(args):
     else:
         print("Using calibration sans external sensors...")
         analyze_palpations(
-            folder, show_palpations=args.view_palpations
+            folder, show_palpations=args.view_palpations or args.view_all
         )
-        if args.view_point_cloud:
+        if args.view_point_cloud or args.view_all:
             show_palpation_point_cloud(os.path.join(
                 folder,
                 "plane.csv"
             ))
 
-
     offset_v_error_filename = os.path.join(folder, "offset_v_error.csv")
 
-    offset_v_error = get_offset_v_error(offset_v_error_filename,
-                                        args.data_folder, tracker=is_tracker)
+    offset_v_error = get_offset_v_error(
+        offset_v_error_filename,
+        args.data_folder, is_tracker,
+        args.view_offset_error or args.view_all
+    )
+
     # Get offset correction in tenths of millimeter
-    offset_correction = get_min_value(offset_v_error)[0] # Get x value of abs min
+    # by getting x value of the abs. minimum of the graph
+    offset_correction = get_min_value(offset_v_error)[0]
 
     # Convert correction from tenths of millimeter to milimeter
     offset_correction /= 10
@@ -158,10 +156,10 @@ def parse_analyze(args):
             VoltsToPosSI.set("Offset", str(offset_correction + current_offset))
             tree.write(info["Config File"])
             print(("Wrote offset: {}mm (Current offset) "
-                   "+ {}mm (Offset correction) "
-                   "= {}mm (Written offset)")
-                   .format(current_offset, offset_correction,
-                           offset_correction + current_offset))
+                "+ {}mm (Offset correction) "
+                "= {}mm (Written offset)")
+                .format(current_offset, offset_correction,
+                        offset_correction + current_offset))
         else:
             print("Error: File does not exist")
             sys.exit(1)
@@ -207,6 +205,11 @@ if __name__ == "__main__":
         action="store_true",
         default=False
     )
+    parser_record.add_argument(
+        "-n", "--number",
+        help="run n number of times",
+        type=int,
+    )
     parser_record.set_defaults(func=parse_record)
 
     parser_analyze = subparser.add_parser(
@@ -230,9 +233,21 @@ if __name__ == "__main__":
         default=False,
         action="store_true"
     )
+    parser_analyze.add_argument(
+        "--view-offset-error",
+        help="view offset vs error graph",
+        default=False,
+        action="store_true"
+    )
+    parser_analyze.add_argument(
+        "--view-all",
+        help="view all graphs",
+        default=False,
+        action="store_true"
+    )
+
     parser_analyze.set_defaults(func=parse_analyze)
 
     args = parser.parse_args()
 
     args.func(args)
-

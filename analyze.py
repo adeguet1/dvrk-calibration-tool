@@ -9,7 +9,7 @@ import cisstRobotPython as crp
 import matplotlib.pyplot as plt
 from cisstNumericalPython import nmrRegistrationRigid
 from copy import copy
-import re
+
 
 ROB_FILE = ("/home/chaitu/catkin_ws/src/cisst-saw/"
             "sawIntuitiveResearchKit/share/deprecated/dvpsm.rob")
@@ -18,6 +18,7 @@ SEARCH_THRESH = 1.4
 
 # Minimum difference between residuals, used in analyze_palpation
 MIN_RESIDUAL_DIFF = 0.008
+
 
 def show_tracker_point_cloud(data_file):
     """
@@ -59,9 +60,14 @@ def show_tracker_point_cloud(data_file):
     # arm positions
     fig = plt.figure()
     ax = fig.gca(projection='3d')
-    ax.scatter(tracker_coords[:,0], tracker_coords[:,1], tracker_coords[:,2],
-        c='b', s=20, label="Tracker")
-    ax.scatter(coords[:,0], coords[:,1], coords[:,2], c='r', s=20, label="Arm")
+    ax.scatter(
+        tracker_coords[:, 0], tracker_coords[:, 1], tracker_coords[:, 2],
+        c='b', s=20, label="Tracker"
+    )
+    ax.scatter(
+        coords[:, 0], coords[:, 1], coords[:, 2],
+        c='r', s=20, label="Arm"
+    )
 
     plt.xlabel('X')
     plt.ylabel('Y')
@@ -90,13 +96,13 @@ def show_palpation_point_cloud(data_file):
 
     X, Y = np.meshgrid(
         np.arange(
-            min(coords[:,0])-0.05,
-            max(coords[:,0])+0.05,
+            min(coords[:, 0])-0.05,
+            max(coords[:, 0])+0.05,
             0.05
         ),
         np.arange(
-            min(coords[:,1])-0.05,
-            max(coords[:,1])+0.05,
+            min(coords[:, 1])-0.05,
+            max(coords[:, 1])+0.05,
             0.05
         )
     )
@@ -108,13 +114,14 @@ def show_palpation_point_cloud(data_file):
     fig = plt.figure()
     ax = fig.gca(projection='3d')
     ax.plot_surface(X, Y, Z, rstride=1, cstride=1, alpha=0.2)
-    ax.scatter(coords[:,0], coords[:,1], coords[:,2], c='r', s=20)
+    ax.scatter(coords[:, 0], coords[:, 1], coords[:, 2], c='r', s=20)
 
     plt.xlabel('X')
     plt.ylabel('Y')
     ax.set_zlabel('Z')
     ax.legend()
     plt.show()
+
 
 def get_best_fit_plane(pts):
     """
@@ -143,7 +150,8 @@ def get_best_fit_plane(pts):
         # print(A * projection[0] + B * projection[1] + c - projection[2])
 
     return (a, b, c), np.sqrt(sum([error ** 2 for error in errors]) /
-                                len(errors))
+                              len(errors))
+
 
 def get_poly_min(pts, deg=2):
     """
@@ -159,6 +167,7 @@ def get_poly_min(pts, deg=2):
 
     return equation, np.array([min_x, min_y])
 
+
 def get_min_value(pts):
     y = pts[:, 1]
     min_y = np.amin(y)
@@ -168,7 +177,9 @@ def get_min_value(pts):
     min_x = pts[min_idx, 0]
     return min_x, min_y
 
-def get_offset_v_error(offset_v_error_filename, data_folders, tracker=False):
+
+def get_offset_v_error(offset_v_error_filename, data_folders, tracker=False,
+                       show_graph=False):
 
     rob = crp.robManipulator()
     rob.LoadRobot(ROB_FILE)
@@ -224,7 +235,6 @@ def get_offset_v_error(offset_v_error_filename, data_folders, tracker=False):
             tracker_coords = tracker_coords.reshape(-1, 3)
             tracker_coord_set.append(tracker_coords)
 
-
     with open(offset_v_error_filename, 'w') as outfile:
         fk_plot = csv.DictWriter(outfile, fieldnames=["offset", "error"])
         fk_plot.writeheader()
@@ -259,10 +269,9 @@ def get_offset_v_error(offset_v_error_filename, data_folders, tracker=False):
                 # import pudb; pudb.set_trace()  # XXX BREAKPOINT
                 # Use plane of best fit if palpation is used
                 error = sum([
-                    get_best_fit_plane(coords_fk)[1] # Returns equation, err
+                    get_best_fit_plane(coords_fk)[1]  # Returns equation, err
                     for coords_fk in fk_pt_set
                 ])
-
 
             # Add new points
             offset_v_error = np.append(offset_v_error,
@@ -271,13 +280,17 @@ def get_offset_v_error(offset_v_error_filename, data_folders, tracker=False):
             # Write plots in tenths of millimeters
             fk_plot.writerow({"offset": offset, "error": error})
 
-
     offset_v_error = offset_v_error.reshape(-1, 2)
+
+    if show_graph:
+        plt.plot(offset_v_error[:, 0], offset_v_error[:, 1])
+        plt.show()
 
     # Convert from tenths of a millimeter to meters
     # offset_v_error[:, 0] /= 10000
 
     return offset_v_error
+
 
 def analyze_palpations(folder, show_palpations=False):
     """
@@ -291,13 +304,11 @@ def analyze_palpations(folder, show_palpations=False):
         sys.exit(1)
 
     # Ignore non-palpation files, e. g. offset_v_error.csv or plane.csv
-    palpation_files = np.array([
+    palpation_files = sorted(np.array([
         f
         for f in os.listdir(folder)
         if f.startswith("palpation")
-    ])
-
-    palpation_files.sort()
+    ]))
 
     dim = int(len(palpation_files) ** (1/2))
 
@@ -315,13 +326,13 @@ def analyze_palpations(folder, show_palpations=False):
 
         for col_idx, palpation_file in enumerate(row):
 
-
             with open(os.path.join(folder, palpation_file)) as infile:
                 reader = csv.DictReader(infile)
                 pos_v_wrench = []
                 for row in reader:
                     joints = [
-                        float(row["joint_{}_position".format(i)]) for i in range(6)
+                        float(row["joint_{}_position".format(i)])
+                        for i in range(6)
                     ]
 
                     pos_v_wrench.append((
@@ -347,7 +358,7 @@ def analyze_palpations(folder, show_palpations=False):
 
                 if pos is None:
                     rospy.logwarn("Didn't get enough data;"
-                                "disregarding point and continuing to next")
+                                  "disregarding point and continuing to next")
                     continue
 
                 data_dict = {
@@ -372,6 +383,7 @@ def analyze_palpations(folder, show_palpations=False):
         csvfile.writeheader()
         csvfile.writerows(data)
 
+
 def analyze_palpation(pos_v_wrench, ax=None):
     """
     Analyze palpation with the option to show graph
@@ -380,7 +392,7 @@ def analyze_palpation(pos_v_wrench, ax=None):
     data_contact = []
 
     # Sort pos_v_wrench based on z-position
-    pos_v_wrench = np.array(sorted(pos_v_wrench, key=lambda t:t[2]))
+    pos_v_wrench = np.array(sorted(pos_v_wrench, key=lambda t: t[2]))
     z_v_wrench = pos_v_wrench[:, 2:4]
 
     # Separate points into periods of contact or movement of arm
@@ -414,7 +426,6 @@ def analyze_palpation(pos_v_wrench, ax=None):
                                              data_moving[:, 1],
                                              1, full=True)[:2]
 
-
     # Get new residual by getting first element of residual array
     new_residual = np.polyfit(data_moving[:-1, 0],
                               data_moving[:-1, 0],
@@ -445,7 +456,6 @@ def analyze_palpation(pos_v_wrench, ax=None):
     pos[2] = (contact_eqn[1] - moving_eqn[1])/(moving_eqn[0] - contact_eqn[0])
     joints = np.zeros((6,))
 
-
     # Find average of the two points next to the z value
     for i in range(len(pos_v_wrench)):
         if pos_v_wrench[i-1, 2] <= pos[2] <= pos_v_wrench[i, 2]:
@@ -458,30 +468,31 @@ def analyze_palpation(pos_v_wrench, ax=None):
 
         # Plot best fit lines
         ax.plot(data_moving[:, 0],
-                    moving_eqn[0] * data_moving[:, 0] + moving_eqn[1],
-                    '-', color='red')
+                moving_eqn[0] * data_moving[:, 0] + moving_eqn[1],
+                '-', color='red')
         ax.plot(data_contact[:, 0],
-                    contact_eqn[0] * data_contact[:, 0] + contact_eqn[1],
-                    '-', color='blue')
+                contact_eqn[0] * data_contact[:, 0] + contact_eqn[1],
+                '-', color='blue')
         ax.plot(pos[2],
-                    contact_eqn[0] * pos[2] + contact_eqn[1],
-                    'o', color='purple', label="Intersection")
+                contact_eqn[0] * pos[2] + contact_eqn[1],
+                'o', color='purple', label="Intersection")
 
         # First plot all points, then plot the contact points and moving points
-        ax.scatter(z_v_wrench[:,0],
-                       z_v_wrench[:,1],
-                       s=10, color='green', label="Outliers")
-        ax.scatter(data_moving[:,0],
-                       data_moving[:,1],
-                       s=10, color='red', label="Points of movement")
-        ax.scatter(data_contact[:,0],
-                       data_contact[:,1],
-                       s=10, color='blue', label="Points of contact")
+        ax.scatter(z_v_wrench[:, 0],
+                   z_v_wrench[:, 1],
+                   s=10, color='green', label="Outliers")
+        ax.scatter(data_moving[:, 0],
+                   data_moving[:, 1],
+                   s=10, color='red', label="Points of movement")
+        ax.scatter(data_contact[:, 0],
+                   data_contact[:, 1],
+                   s=10, color='blue', label="Points of contact")
         # ax.legend()
         # ax.xlabel("Z")
         # ax.ylabel("Wrench")
 
     return pos, joints
+
 
 def analyze_palpation_threshold(
         pos_v_wrench, thresh=None,
@@ -498,7 +509,7 @@ def analyze_palpation_threshold(
         thresh = SEARCH_THRESH
 
     # Add checker if wrench ever reaches threshold
-    pos_v_wrench = np.array(sorted(pos_v_wrench, key=lambda t:t[2]))
+    pos_v_wrench = np.array(sorted(pos_v_wrench, key=lambda t: t[2]))
     for i in range(len(pos_v_wrench)):
         if pos_v_wrench[i, 3] > thresh:
             # Get average of the closest two pos and joints
@@ -517,6 +528,7 @@ def analyze_palpation_threshold(
         plt.show()
 
     return pos, joints
+
 
 def derivative(p1, p2):
     return (p2[1] - p1[1]) / (p2[0] - p1[0])
