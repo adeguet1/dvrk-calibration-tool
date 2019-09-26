@@ -34,7 +34,7 @@ def parse_info(filename):
 
 
 def parse_record(args):
-    for i in range(args.n):
+    for i in range(args.number):
         if args.tracker is not None:
             from tracker_recording import TrackerRecording
             recording = TrackerRecording(args.arm, args.tracker)
