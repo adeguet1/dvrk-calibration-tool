@@ -19,6 +19,11 @@ To record the points using a tracker, run:
 ./calibrate.py record -t {PSM_NAME} {CONFIG_FILE}
 ```
 
+To record the points *n* number of times, run
+```bash
+./calibrate.py record -n {PSM_NAME} {CONFIG_FILE}
+```
+
 This command creates a folder in the format `{ARM_NAME}_{DATE}_{TIME}`, which stores all the values for the calibration: palpation_{row}_{column}.csv and info.txt
 
 After this, to get the offset from the data recorded by palpations, run:
